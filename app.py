@@ -264,19 +264,29 @@ def menu_cmd(message):
     print(f"Processing /menu for chat_id: {chat_id}")
     access = check_access(chat_id, 'menu')
     if access:
+        print(f"Access denied for {chat_id}: {access}")
         bot.reply_to(message, access)
         return
+    
     user = get_user(chat_id)
+    print(f"User data for {chat_id}: {user}")
+    
     if user:
         time_left = (user['subscription_end'] - datetime.now()).days if user['subscription_end'] else 0
         time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
         response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}"
+        
+        # Перевірка техперериву
+        global tech_break
         if tech_break:
             tech_time_left = (tech_break - datetime.now()).total_seconds() / 60
+            print(f"Tech break active, time left: {tech_time_left} minutes")
             if tech_time_left > 0:
                 response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+2), осталось {int(tech_time_left)} мин."
             else:
                 tech_break = None
+                print("Tech break expired, resetting to None")
+        
         response += "\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
         if user['prefix'] in ['Админ', 'Создатель']:
             response += "\n/passwords\n/admin"
@@ -284,6 +294,9 @@ def menu_cmd(message):
             response += "\n/hacked\n/database\n/adprefix\n/delprefix"
     else:
         response = "🧾 Команды:\n/start\n/menu\n/site\n/getchatid"
+        print(f"No user found for {chat_id}, showing basic menu")
+    
+    print(f"Sending response to {chat_id}: {response}")
     bot.reply_to(message, response)
 
 @bot.message_handler(commands=['site'])
