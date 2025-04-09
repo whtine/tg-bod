@@ -253,11 +253,11 @@ def menu_cmd(message):
     if user:
         time_left = (user['subscription_end'] - datetime.now()).days if user['subscription_end'] else 0
         time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
-        response = (f"👤 Ваш префикс: {user['prefix']}\n"
-                    f"⏳ Подписка: {time_str}\n\n"
-                    f"🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
-                    f"{'' if user['prefix'] not in ['Админ', 'Создатель'] else '\n/passwords\n/admin'}"
-                    f"{'' if user['prefix'] != 'Создатель' else '\n/hacked\n/database\n/adprefix\n/delprefix'}")
+        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
+        if user['prefix'] in ['Админ', 'Создатель']:
+            response += "\n/passwords\n/admin"
+        if user['prefix'] == 'Создатель':
+            response += "\n/hacked\n/database\n/adprefix\n/delprefix"
     else:
         response = "🧾 Команды:\n/start\n/menu\n/site\n/getchatid"
     bot.reply_to(message, response)
