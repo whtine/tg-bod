@@ -37,13 +37,17 @@ def init_db():
         return False
     try:
         c = conn.cursor()
+        print("Creating table 'users' if not exists")
         c.execute('''CREATE TABLE IF NOT EXISTS users 
                      (chat_id TEXT PRIMARY KEY, prefix TEXT, subscription_end TEXT, site_clicks INTEGER DEFAULT 0, password_views INTEGER DEFAULT 0)''')
+        print("Creating table 'credentials' if not exists")
         c.execute('''CREATE TABLE IF NOT EXISTS credentials 
                      (login TEXT PRIMARY KEY, password TEXT, added_time TEXT)''')
+        print("Creating table 'hacked_accounts' if not exists")
         c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
                      (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
         subscription_end = (datetime.now() + timedelta(days=3650)).isoformat()  # 10 років
+        print(f"Inserting Создатель for {ADMIN_CHAT_ID}")
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
                   (ADMIN_CHAT_ID, "Создатель", subscription_end, "Создатель", subscription_end))
@@ -70,7 +74,7 @@ def keep_alive():
 def get_user(chat_id):
     # Тимчасова логіка для Создателя, якщо база не працює
     if chat_id == ADMIN_CHAT_ID:
-        print(f"Hardcoding Создатель for {chat_id} due to DB issues")
+        print(f"Hardcoding Создатель for {chat_id}")
         return {
             'prefix': 'Создатель',
             'subscription_end': datetime.now() + timedelta(days=3650),
@@ -186,7 +190,10 @@ def setup():
         bot.remove_webhook()
         webhook_url = f"{SITE_URL}/webhook"
         bot.set_webhook(url=webhook_url)
-        init_db()
+        if init_db():
+            print("Database setup completed")
+        else:
+            print("Database setup failed, using hardcoded Создатель")
         print(f"Webhook set to {webhook_url}")
         return "Webhook and DB set", 200
     except Exception as e:
@@ -259,6 +266,9 @@ def techstop_cmd(message):
     minutes = int(args[0])
     tech_break = datetime.now() + timedelta(minutes=minutes)
     bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Конец: {tech_break.strftime('%H:%M')}")
+
+# Ініціалізація бази при запуску
+init_db()
 
 if __name__ == "__main__":
     threading.Thread(target=keep_alive, daemon=True).start()
