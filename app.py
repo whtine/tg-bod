@@ -20,9 +20,9 @@ bot = telebot.TeleBot(TOKEN)
 # === Переменные для техперерыва ===
 tech_break = None
 
-# === Установка часового пояса (UTC+3) ===
+# === Установка часового пояса (UTC+2) ===
 def get_current_time():
-    return datetime.now() + timedelta(hours=3)  # Добавляем 3 часа к UTC для UTC+3
+    return datetime.now() + timedelta(hours=2)  # Добавляем 2 часа к UTC для UTC+2
 
 # === Инициализация базы данных ===
 def get_db_connection():
@@ -426,7 +426,7 @@ def menu_cmd(message):
             tech_time_left = (tech_break - get_current_time()).total_seconds() / 60
             print(f"Техперерыв активен, осталось: {tech_time_left} минут")
             if tech_time_left > 0:
-                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+3), осталось {int(tech_time_left)} мин."
+                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+2), осталось {int(tech_time_left)} мин."
             else:
                 tech_break = None
                 print("Техперерыв истек, сбрасываем на None")
@@ -487,7 +487,7 @@ def techstop_cmd(message):
         return
     minutes = int(args[0])
     tech_break = get_current_time() + timedelta(minutes=minutes)
-    bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Окончание: {tech_break.strftime('%H:%M')} (UTC+3)")
+    bot.reply_to(message, f"⏳ Техперерыв установлен на {minutes} минут. Окончание: {tech_break.strftime('%H:%M')} (UTC+2)")
 
 @bot.message_handler(commands=['techstopoff'])
 def techstopoff_cmd(message):
