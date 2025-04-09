@@ -9,7 +9,7 @@ import threading
 import time  # Додано імпорт time
 
 # === Настройки ===
-TOKEN = '8028944732:AAH992DI-fMd3OSjfqfs4pEa3J04Jwb48Q4'
+TOKEN = '8028944732:AAFGduJrXNp9IcIRxi5fTZpNzQaamHDglw4'
 ADMIN_CHAT_ID = '6956377285'
 DATABASE_URL = os.getenv('postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a/roblox_db')
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')  # Оновіть після деплою
