@@ -1,2 +1,4 @@
 flask
+pyTelegramBotAPI
 psycopg2-binary
+requests
