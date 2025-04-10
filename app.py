@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta
 
 # === Настройки ===
-TOKEN = '8028944732:AAFGduJrXNp9IcIRxi5fTZpNzQaamHDglw4'  # Ваш токен
+TOKEN = '8028944732:AAEICb55rLpVYfL9vDul5aYPf_E19SPjMlo'  # Ваш токен
 ADMIN_CHAT_ID = '6956377285'  # Ваш chat_id (Создатель)
 DATABASE_URL = 'postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a.oregon-postgres.render.com/roblox_db'
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')
