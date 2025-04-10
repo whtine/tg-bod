@@ -379,19 +379,21 @@ def webhook():
     print("Неверный запрос вебхука")
     return 'Неверный запрос', 400
 
-@app.route('/setup', methods=['GET'])
-def setup():
-    try:
-        bot.remove_webhook()
-        webhook_url = f"{SITE_URL}/webhook"
-        bot.set_webhook(url=webhook_url)
-        init_db()
-        print(f"Вебхук установлен на {webhook_url}")
-        return "Вебхук и БД настроены", 200
-    except Exception as e:
-        print(f"Ошибка настройки: {e}")
-        return f"Ошибка настройки: {e}", 500
-
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        print(f"Получены данные вебхука: {json_string}")
+        update = telebot.types.Update.de_json(json_string)
+        if update and (update.message or update.callback_query):
+            print(f"Обработка обновления: {update}")
+            bot.process_new_updates([update])
+        else:
+            print("В данных вебхука нет валидного обновления")
+        return 'OK', 200
+    print("Неверный запрос вебхука")
+    return 'Неверный запрос', 400
+    
 # === Команды бота ===
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
