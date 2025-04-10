@@ -364,7 +364,6 @@ def submit():
 def not_found():
     return render_template('404.html')
 
-# Добавим глобальное хранилище обработанных update_id
 processed_updates = set()
 
 @app.route('/webhook', methods=['POST'])
@@ -391,8 +390,50 @@ def webhook():
             return 'Неверный запрос', 400
     except Exception as e:
         print(f"Ошибка в вебхуке: {e}")
-        return 'OK', 200  # Всегда 200 для Telegram
+        return 'OK', 200
 
+@bot.message_handler(commands=['menu'])
+def menu_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Обработка /menu для chat_id: {chat_id}")
+    access = check_access(chat_id, 'menu')
+    if access:
+        print(f"Доступ запрещен для {chat_id}: {access}")
+        bot.reply_to(message, access)
+        return
+    
+    user = get_user(chat_id)
+    print(f"Данные пользователя для {chat_id}: {user}")
+    
+    if user:
+        time_left = (user['subscription_end'] - get_current_time()).days if user['subscription_end'] else 0
+        time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
+        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}"
+        
+        global tech_break
+        if tech_break:
+            tech_time_left = (tech_break - get_current_time()).total_seconds() / 60
+            if tech_time_left > 0:
+                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+2), осталось {int(tech_time_left)} мин."
+            else:
+                tech_break = None
+        
+        response += "\n\n🧾 Доступные команды:\n/start - Начать\n/menu - Показать меню\n/getchatid - Ваш ID"
+        if user['prefix'] != 'Посетитель':
+            response += "\n/site - Ссылка на сайт\n/hacked - Список взломанных аккаунтов"
+        if user['prefix'] in ['Админ', 'Создатель']:
+            response += "\n/passwords - Список паролей\n/admin - Панель администратора"
+        if user['prefix'] == 'Создатель':
+            response += "\n/database - Управление БД\n/techstop <минуты> - Включить техперерыв\n/techstopoff - Выключить техперерыв"
+            response += "\n/adprefix <chat_id> <префикс> <дни> - Выдать подписку\n/delprefix <chat_id> - Сбросить подписку"
+            response += "\n/adduser <chat_id> <префикс> <дни> - Добавить пользователя\n/addcred <логин> <пароль> - Добавить пароль"
+            response += "\n/addhacked <логин> <пароль> - Добавить взломанный аккаунт"
+    else:
+        response = "🧾 Доступные команды:\n/start - Начать\n/menu - Показать меню\n/getchatid - Ваш ID"
+    
+    print(f"Отправляем ответ для {chat_id}: {response}")
+    bot.reply_to(message, response)
+    
 # Обновленная команда /hacked для пользователей
 @bot.message_handler(commands=['hacked'])
 def hacked_cmd(message):
@@ -464,48 +505,6 @@ def start_cmd(message):
         bot.reply_to(message, access)
         return
     bot.reply_to(message, "✅ Бот активен! Используйте /menu для списка команд.")
-
-@bot.message_handler(commands=['menu'])
-def menu_cmd(message):
-    chat_id = str(message.chat.id)
-    print(f"Обработка /menu для chat_id: {chat_id}")
-    access = check_access(chat_id, 'menu')
-    if access:
-        print(f"Доступ запрещен для {chat_id}: {access}")
-        bot.reply_to(message, access)
-        return
-    
-    user = get_user(chat_id)
-    print(f"Данные пользователя для {chat_id}: {user}")
-    
-    if user:
-        time_left = (user['subscription_end'] - get_current_time()).days if user['subscription_end'] else 0
-        time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
-        response = f"👤 Ваш префикс: {user['prefix']}\n⏳ Подписка: {time_str}"
-        
-        global tech_break
-        if tech_break:
-            tech_time_left = (tech_break - get_current_time()).total_seconds() / 60
-            print(f"Техперерыв активен, осталось: {tech_time_left} минут")
-            if tech_time_left > 0:
-                response += f"\n⏳ Техперерыв: до {tech_break.strftime('%H:%M')} (UTC+2), осталось {int(tech_time_left)} мин."
-            else:
-                tech_break = None
-                print("Техперерыв истек, сбрасываем на None")
-        
-        response += "\n\n🧾 Команды:\n/start\n/menu\n/getchatid"
-        if user['prefix'] != 'Посетитель':
-            response += "\n/site\n/techstop\n/techstopoff"
-            if user['prefix'] in ['Админ', 'Создатель']:
-                response += "\n/passwords\n/admin"
-            if user['prefix'] == 'Создатель':
-                response += "\n/hacked\n/database\n/adprefix\n/delprefix"
-    else:
-        response = "🧾 Команды:\n/start\n/menu\n/getchatid"
-        print(f"Пользователь для {chat_id} не найден, показываем базовое меню")
-    
-    print(f"Отправляем ответ для {chat_id}: {response}")
-    bot.reply_to(message, response)
 
 @bot.message_handler(commands=['getchatid'])
 def getchatid_cmd(message):
