@@ -510,37 +510,45 @@ def menu_cmd(message):
         tech_time_left = (tech_break - get_current_time()).total_seconds() / 60
         if tech_time_left > 0:
             print(f"Техперерыв активен, осталось: {tech_time_left} мин")
-            response += f"\n⏳ Техперерыв до {tech_break.strftime('%H:%M')} (UTC+2)\nПричина: {tech_reason}\nОсталось: {int(tech_time_left)} мин."
+            response += f"\n⏳ Техперерыв до {tech_break.strftime('%H:%M')} (UTC+2)\nПричина: {tech_reason}\nОсталось: {int(tech_time_left)} мин"
         else:
             print("Техперерыв истек, сбрасываем")
             tech_break = None
             tech_reason = None
     
-    response += "\n\n📋 **Команды бота**:\n" \
-                "/start — запустить бота\n" \
-                "/menu — показать это меню\n" \
-                "/getchatid — узнать ваш ID и юзернейм\n" \
-                "/support — сообщить об ошибке создателю"
+    response += "\n\n📋 Команды бота:\n" \
+                "/start - запустить бота\n" \
+                "/menu - показать это меню\n" \
+                "/getchatid - узнать ваш ID и юзернейм\n" \
+                "/support - сообщить об ошибке создателю"
     if user['prefix'] != 'Посетитель':
-        response += "\n/site — получить ссылку на сайт\n" \
-                    "/hacked — список взломанных аккаунтов"
+        response += "\n/site - получить ссылку на сайт\n" \
+                    "/hacked - список взломанных аккаунтов"
     if user['prefix'] in ['Админ', 'Создатель']:
-        response += "\n/passwords — список паролей\n" \
-                    "/admin — панель администратора"
+        response += "\n/passwords - список паролей\n" \
+                    "/admin - панель администратора"
     if user['prefix'] == 'Создатель':
-        response += "\n/database — управление базой данных\n" \
-                    "/techstop <минуты> <причина> — включить техперерыв\n" \
-                    "/techstopoff — выключить техперерыв\n" \
-                    "/adprefix <chat_id> <префикс> <дни> — выдать подписку\n" \
-                    "/delprefix <chat_id> — сбросить подписку\n" \
-                    "/adduser <chat_id> <префикс> <дни> — добавить пользователя\n" \
-                    "/addcred <логин> <пароль> — добавить пароль\n" \
-                    "/addhacked <логин> <пароль> — добавить взломанный аккаунт"
+        response += "\n/database - управление базой данных\n" \
+                    "/techstop <минуты> <причина> - включить техперерыв\n" \
+                    "/techstopoff - выключить техперерыв\n" \
+                    "/adprefix <chat_id> <префикс> <дни> - выдать подписку\n" \
+                    "/delprefix <chat_id> - сбросить подписку\n" \
+                    "/adduser <chat_id> <префикс> <дни> - добавить пользователя\n" \
+                    "/addcred <логин> <пароль> - добавить пароль\n" \
+                    "/addhacked <логин> <пароль> - добавить взломанный аккаунт"
     
-    print(f"Подготовлен ответ для /menu: {response[:100]}...")  # Логируем часть ответа
+    print(f"Подготовлен ответ для /menu: {response[:100]}...")
+    print(f"Длина ответа: {len(response)} символов")
     try:
-        bot.reply_to(message, response, parse_mode='Markdown')
-        print(f"Ответ на /menu успешно отправлен для {chat_id}")
+        if len(response) > 4096:
+            print(f"Ответ превышает 4096 символов, разбиваем на части")
+            parts = [response[i:i+4090] for i in range(0, len(response), 4090)]
+            for part in parts:
+                bot.send_message(chat_id, part)
+                print(f"Отправлена часть ответа для {chat_id}")
+        else:
+            bot.reply_to(message, response)
+            print(f"Ответ на /menu успешно отправлен для {chat_id}")
     except Exception as e:
         print(f"Ошибка отправки ответа на /menu для {chat_id}: {e}")
         try:
@@ -549,6 +557,68 @@ def menu_cmd(message):
         except Exception as e2:
             print(f"Не удалось отправить сообщение об ошибке для {chat_id}: {e2}")
 
+@bot.message_handler(commands=['admin'])
+def admin_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Обработка /admin для chat_id: {chat_id}")
+    access = check_access(chat_id, 'admin')
+    if access:
+        print(f"Доступ ограничен для /admin: {access}")
+        try:
+            bot.reply_to(message, access)
+            print(f"Сообщение об ограничении доступа отправлено для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения об ограничении для /admin: {e}")
+        return
+    
+    users = get_all_users()
+    if not users:
+        print("Список пользователей пуст")
+        try:
+            bot.reply_to(message, "📂 Список пользователей пуст.")
+            print(f"Сообщение о пустом списке отправлено для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения о пустом списке для {chat_id}: {e}")
+        return
+    
+    response = "👑 Панель администратора\n📋 Список пользователей:\n\n"
+    print(f"Получен список пользователей: {users}")
+    for chat_id_user, prefix, subscription_end, site_clicks, password_views in users:
+        try:
+            print(f"Получение информации о пользователе {chat_id_user}")
+            user_info = bot.get_chat(chat_id_user)
+            username = f"@{user_info.username}" if user_info.username else "Нет юзернейма"
+            print(f"Юзернейм для {chat_id_user}: {username}")
+        except Exception as e:
+            print(f"Ошибка получения юзернейма для {chat_id_user}: {e}")
+            username = "Ошибка получения"
+        time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
+        response += (f"🆔 Chat ID: {chat_id_user}\n"
+                     f"👤 Юзернейм: {username}\n"
+                     f"👑 Префикс: {prefix}\n"
+                     f"⏳ Подписка: {time_left} дней\n"
+                     f"🌐 Кликов на сайт: {site_clicks or 0}\n"
+                     f"🔑 Просмотров паролей: {password_views or 0}\n\n")
+    
+    print(f"Подготовлен ответ для /admin: {response[:100]}...")
+    print(f"Длина ответа: {len(response)} символов")
+    try:
+        if len(response) > 4096:
+            print(f"Ответ превышает 4096 символов, разбиваем на части")
+            parts = [response[i:i+4090] for i in range(0, len(response), 4090)]
+            for part in parts:
+                bot.send_message(chat_id, part)
+                print(f"Отправлена часть ответа для {chat_id}")
+        else:
+            bot.reply_to(message, response)
+            print(f"Ответ на /admin успешно отправлен для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /admin для {chat_id}: {e}")
+        try:
+            bot.send_message(chat_id, "❌ Ошибка при отправке панели администратора! Попробуйте позже.")
+            print(f"Отправлено сообщение об ошибке для {chat_id}")
+        except Exception as e2:
+            print(f"Не удалось отправить сообщение об ошибке для {chat_id}: {e2}")
 @bot.message_handler(commands=['support'])
 def support_cmd(message):
     chat_id = str(message.chat.id)
@@ -761,61 +831,6 @@ def add_hacked_cmd(message):
         bot.reply_to(message, f"🔓 Укажите статус для `{login}`:", reply_markup=markup, parse_mode='Markdown')
     except Exception as e:
         print(f"Ошибка отправки запроса статуса для /addhacked для {chat_id}: {e}")
-
-@bot.message_handler(commands=['admin'])
-def admin_cmd(message):
-    chat_id = str(message.chat.id)
-    print(f"Обработка /admin для chat_id: {chat_id}")
-    access = check_access(chat_id, 'admin')
-    if access:
-        print(f"Доступ ограничен для /admin: {access}")
-        try:
-            bot.reply_to(message, access)
-            print(f"Сообщение об ограничении доступа отправлено для {chat_id}")
-        except Exception as e:
-            print(f"Ошибка отправки сообщения об ограничении для /admin: {e}")
-        return
-    
-    users = get_all_users()
-    if not users:
-        print("Список пользователей пуст")
-        try:
-            bot.reply_to(message, "📂 Список пользователей пуст.")
-            print(f"Сообщение о пустом списке отправлено для {chat_id}")
-        except Exception as e:
-            print(f"Ошибка отправки сообщения о пустом списке для {chat_id}: {e}")
-        return
-    
-    response = "👑 **Панель администратора**\n📋 Список пользователей:\n\n"
-    print(f"Получен список пользователей: {users}")
-    for chat_id_user, prefix, subscription_end, site_clicks, password_views in users:
-        try:
-            print(f"Получение информации о пользователе {chat_id_user}")
-            user_info = bot.get_chat(chat_id_user)
-            username = f"@{user_info.username}" if user_info.username else "Нет юзернейма"
-            print(f"Юзернейм для {chat_id_user}: {username}")
-        except Exception as e:
-            print(f"Ошибка получения юзернейма для {chat_id_user}: {e}")
-            username = "Ошибка получения"
-        time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
-        response += (f"🆔 Chat ID: `{chat_id_user}`\n"
-                     f"👤 Юзернейм: {username}\n"
-                     f"👑 Префикс: {prefix}\n"
-                     f"⏳ Подписка: {time_left} дней\n"
-                     f"🌐 Кликов на сайт: {site_clicks or 0}\n"
-                     f"🔑 Просмотров паролей: {password_views or 0}\n\n")
-    
-    print(f"Подготовлен ответ для /admin: {response[:100]}...")  # Логируем часть ответа
-    try:
-        bot.reply_to(message, response, parse_mode='Markdown')
-        print(f"Ответ на /admin успешно отправлен для {chat_id}")
-    except Exception as e:
-        print(f"Ошибка отправки ответа на /admin для {chat_id}: {e}")
-        try:
-            bot.send_message(chat_id, "❌ Ошибка при отправке панели администратора! Попробуйте позже.")
-            print(f"Отправлено сообщение об ошибке для {chat_id}")
-        except Exception as e2:
-            print(f"Не удалось отправить сообщение об ошибке для {chat_id}: {e2}")
 
 @bot.message_handler(commands=['adprefix'])
 def adprefix_cmd(message):
