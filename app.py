@@ -365,6 +365,7 @@ def not_found():
     return render_template('404.html')
 
 processed_updates = set()
+pending_hacked = {}
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -433,6 +434,71 @@ def menu_cmd(message):
     
     print(f"Отправляем ответ для {chat_id}: {response}")
     bot.reply_to(message, response)
+
+@bot.message_handler(commands=['addhacked'])
+def add_hacked_cmd(message):
+    chat_id = str(message.chat.id)
+    print(f"Обработка /addhacked для chat_id: {chat_id}")
+    access = check_access(chat_id, 'hacked')
+    if access:
+        bot.reply_to(message, access)
+        return
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    if len(args) != 2:
+        bot.reply_to(message, "❌ Формат: /addhacked <логин> <пароль>")
+        return
+    login, password = args[0], args[1]
+    user = get_user(chat_id)
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("Продан", callback_data=f"hack_{login}_{password}_Продан"),
+        types.InlineKeyboardButton("Не продан", callback_data=f"hack_{login}_{password}_Не продан")
+    )
+    msg = bot.reply_to(message, f"🔓 Укажите статус для {login}:", reply_markup=markup)
+    pending_hacked[chat_id] = {'login': login, 'old_password': password, 'message_id': msg.message_id}
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("hack_"))
+def handle_hack_callback(call):
+    chat_id = str(call.message.chat.id)
+    parts = call.data.split("_")
+    if len(parts) != 4:
+        bot.answer_callback_query(call.id, "❌ Ошибка формата данных")
+        return
+    login, old_password, sold_status = parts[1], parts[2], parts[3]
+    
+    if chat_id not in pending_hacked or pending_hacked[chat_id]['login'] != login:
+        bot.answer_callback_query(call.id, "❌ Этот запрос устарел")
+        return
+    
+    bot.edit_message_text(
+        f"🔓 Аккаунт {login} со статусом '{sold_status}'. Введите новый пароль:",
+        chat_id, call.message.message_id
+    )
+    bot.answer_callback_query(call.id)
+    pending_hacked[chat_id]['sold_status'] = sold_status
+
+@bot.message_handler(func=lambda message: str(message.chat.id) in pending_hacked)
+def handle_new_password(message):
+    chat_id = str(message.chat.id)
+    if chat_id not in pending_hacked:
+        return
+    
+    new_password = message.text.strip()
+    data = pending_hacked[chat_id]
+    login = data['login']
+    sold_status = data['sold_status']
+    user = get_user(chat_id)
+    prefix = user['prefix']
+    
+    if save_hacked_account(login, new_password, prefix, sold_status, None):
+        bot.reply_to(message, f"✅ {login} добавлен в взломанные:\n"
+                            f"Новый пароль: {new_password}\n"
+                            f"Статус: {sold_status}\n"
+                            f"Префикс: {prefix}")
+    else:
+        bot.reply_to(message, "❌ Ошибка при добавлении")
+    
+    del pending_hacked[chat_id]
     
 # Обновленная команда /hacked для пользователей
 @bot.message_handler(commands=['hacked'])
