@@ -68,11 +68,11 @@ def init_db():
 def keep_alive():
     while True:
         try:
-            requests.get(SITE_URL)
-            print("🔁 Отправлен пинг для поддержания активности")
+            response = requests.get(SITE_URL)
+            print(f"🔁 Пинг: {response.status_code} - {response.text[:50]}")
         except Exception as e:
             print(f"Ошибка keep-alive: {e}")
-        time.sleep(300)
+        time.sleep(60)  # Пинг каждую минуту
 
 # === Функции для работы с базой ===
 def get_user(chat_id):
@@ -366,34 +366,38 @@ def not_found():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        print(f"Получены данные вебхука: {json_string}")
-        update = telebot.types.Update.de_json(json_string)
-        if update and (update.message or update.callback_query):
-            print(f"Обработка обновления: {update}")
-            bot.process_new_updates([update])
+    try:
+        if request.headers.get('content-type') == 'application/json':
+            json_string = request.get_data().decode('utf-8')
+            print(f"Получены данные вебхука: {json_string}")
+            update = telebot.types.Update.de_json(json_string)
+            if update and (update.message or update.callback_query):
+                print(f"Обработка обновления: {update}")
+                bot.process_new_updates([update])
+                print("Обновление успешно обработано")
+            else:
+                print("В данных вебхука нет валидного обновления")
+            return 'OK', 200
         else:
-            print("В данных вебхука нет валидного обновления")
-        return 'OK', 200
-    print("Неверный запрос вебхука")
-    return 'Неверный запрос', 400
+            print(f"Неверный тип запроса: {request.headers.get('content-type')}")
+            return 'Неверный запрос', 400
+    except Exception as e:
+        print(f"Ошибка в вебхуке: {e}")
+        return 'Ошибка сервера', 500
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        print(f"Получены данные вебхука: {json_string}")
-        update = telebot.types.Update.de_json(json_string)
-        if update and (update.message or update.callback_query):
-            print(f"Обработка обновления: {update}")
-            bot.process_new_updates([update])
-        else:
-            print("В данных вебхука нет валидного обновления")
-        return 'OK', 200
-    print("Неверный запрос вебхука")
-    return 'Неверный запрос', 400
-    
+@app.route('/setup', methods=['GET'])
+def setup():
+    try:
+        bot.remove_webhook()
+        webhook_url = f"{SITE_URL}/webhook"
+        bot.set_webhook(url=webhook_url)
+        init_db()
+        print(f"Вебхук установлен на {webhook_url}")
+        return "Вебхук и БД настроены", 200
+    except Exception as e:
+        print(f"Ошибка настройки: {e}")
+        return f"Ошибка настройки: {e}", 500
+
 # === Команды бота ===
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
