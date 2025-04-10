@@ -385,18 +385,6 @@ def webhook():
         print(f"Ошибка в вебхуке: {e}")
         return 'Ошибка сервера', 500
 
-@app.route('/setup', methods=['GET'])
-def setup():
-    try:
-        bot.remove_webhook()
-        webhook_url = f"{SITE_URL}/webhook"
-        bot.set_webhook(url=webhook_url)
-        init_db()
-        print(f"Вебхук установлен на {webhook_url}")
-        return "Вебхук и БД настроены", 200
-    except Exception as e:
-        print(f"Ошибка настройки: {e}")
-        return f"Ошибка настройки: {e}", 500
 
 # === Команды бота ===
 @bot.message_handler(commands=['start'])
