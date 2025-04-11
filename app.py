@@ -967,7 +967,6 @@ def handle_database_callback(call):
         print(f"Ошибка обработки callback /database для {chat_id}: {e}")
         bot.answer_callback_query(call.id, "❌ Ошибка при выполнении действия!")
 
-# Обновим существующий обработчик ввода, добавив поддержку шагов awaiting_db_add и awaiting_db_delete
 @bot.message_handler(func=lambda message: str(message.chat.id) in pending_hacked)
 def handle_hacked_input(message):
     chat_id = str(message.chat.id)
