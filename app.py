@@ -37,7 +37,7 @@ TOKEN = '8028944732:AAFsvb4csGSRwtmEFYLGbnTKsCq1hOH6rm0'  # Токен бота
 ADMIN_CHAT_ID = '6956377285'  # ID Создателя
 DATABASE_URL = 'postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a.oregon-postgres.render.com/roblox_db'
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')
-SECRET_WEBHOOK_TOKEN = secrets.token_urlsafe(32)  # Секретный токен для вебхука
+SECRET_WEBHOOK_TOKEN = '98pOXgZq1JMVhHYU9646rpBQl5nvwNXUzvR_WOpV34s'  # Секретный токен из твоего сообщения
 
 # Инициализация бота
 try:
@@ -365,7 +365,9 @@ def index():
 def webhook():
     """Обработка Telegram"""
     logger.info("Запрос на /webhook")
-    client_ip = request.remote_addr
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ',' in client_ip:
+        client_ip = client_ip.split(',')[0].strip()
     if not is_telegram_ip(client_ip):
         logger.warning(f"Чужой IP: {client_ip}")
         abort(403)
