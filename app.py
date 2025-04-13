@@ -50,6 +50,8 @@ except Exception as e:
 # Глобальные переменные
 processed_updates = set()
 tech_mode = False
+tech_reason = ""
+tech_end_time = None
 ad_keywords = [
     'подписка', 'заработок', 'реклама', 'продвижение', 'бесплатно',
     'акция', 'промо', 'скидка', 'casino', 'bet', 'казино', 'ставки',
@@ -96,6 +98,12 @@ def rate_limited_endpoint(func):
 def get_current_time():
     logger.debug("Запрос времени")
     return datetime.now() + timedelta(hours=2)
+
+# Форматирование времени
+def format_time(dt):
+    if not dt:
+        return "Не указано"
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 # Подключение к базе
 def get_db_connection():
@@ -266,29 +274,35 @@ def save_user(chat_id, prefix, subscription_end=None, ip=None, username=None):
 
 # Проверка доступа
 def check_access(chat_id, command):
-    global tech_mode
+    global tech_mode, tech_end_time
     logger.info(f"Проверка: {chat_id} для {command}")
     if tech_mode and chat_id != ADMIN_CHAT_ID:
+        end_time_str = format_time(tech_end_time)
         logger.warning(f"Тех. режим: {chat_id}")
-        return "🔧 Бот на техобслуживании! Попробуйте позже."
+        return (
+            f"🛠 *Бот на техническом перерыве!*\n"
+            f"📝 *Причина*: {tech_reason or 'Не указана'}\n"
+            f"🕒 *Окончание*: {end_time_str}\n"
+            f"Попробуйте позже."
+        )
     user = get_user(chat_id)
     if user is None:
-        if command in ['menu', 'support']:
+        if command in ['menu', 'support'] and not tech_mode:
             logger.info(f"Регистрация {chat_id}")
             save_user(chat_id, "Посетитель", username="Неизвестно")
             return None
         logger.warning(f"Нет доступа: {chat_id}, {command}")
-        return "💳 Купить подписку у @sacoectasy!"
+        return "💳 *Купить подписку у @sacoectasy!*"
     if user['subscription_end'] and user['subscription_end'] < get_current_time():
         logger.info(f"Подписка истекла: {chat_id}")
         save_user(chat_id, 'Посетитель', get_current_time().isoformat(), chat_id, user['username'])
-        return "💳 Подписка истекла! Обратитесь к @sacoectasy."
+        return "💳 *Подписка истекла! Обратитесь к @sacoectasy.*"
     if user['prefix'] == 'Посетитель':
-        if command in ['menu', 'support']:
+        if command in ['menu', 'support'] and not tech_mode:
             logger.debug(f"Разрешён {command}")
             return None
         logger.warning(f"Запрещён {command} для Посетителя")
-        return "💳 Купить подписку у @sacoectasy!"
+        return "💳 *Купить подписку у @sacoectasy!*"
     if command in ['passwords', 'hacked', 'getchatid', 'site']:
         logger.debug(f"Разрешён {command}")
         return None
@@ -298,7 +312,7 @@ def check_access(chat_id, command):
     if command in ['techstop', 'techstopoff', 'adprefix', 'delprefix', 'adduser', 'addcred', 'addhacked', 'broadcast', 'admin']:
         if user['prefix'] != 'Создатель':
             logger.warning(f"Админ-команда {command} от {chat_id}")
-            return "🔒 Эта команда только для Создателя!"
+            return "🔒 *Эта команда только для Создателя!*"
     logger.debug(f"Разрешён {command}")
     return None
 
@@ -436,7 +450,11 @@ def menu_cmd(message):
         save_user(chat_id, "Посетитель", ip=message.from_user.id, username=username)
         user = get_user(chat_id)
     prefix = user['prefix']
-    tech_status = "🛠 *Техперерыв активен*" if tech_mode else "✅ *Техперерыв отключён*"
+    tech_status = (
+        f"🛠 *Техперерыв активен*\n"
+        f"📝 *Причина*: {tech_reason or 'Не указана'}\n"
+        f"🕒 *Окончание*: {format_time(tech_end_time)}"
+    ) if tech_mode else "✅ *Техперерыв отключён*"
     response = (
         f"📋 *Главное меню*\n"
         f"👤 *Ваш статус*: `{prefix}`\n"
@@ -528,6 +546,7 @@ def process_support_message(message):
     chat_id = str(message.chat.id)
     text = sanitize_input(message.text)
     logger.info(f"Поддержка от {chat_id}: {text}")
+heil hitler
     if not text:
         try:
             bot.reply_to(message, "❌ *Сообщение не может быть пустым!*", parse_mode='Markdown')
@@ -597,11 +616,16 @@ def hacked_cmd(message):
         return
     try:
         c = conn.cursor()
-        c.execute("SELECT login, password, sold_status FROM hacked_accounts")
+        c.execute("SELECT login, password, sold_status, hack_date FROM hacked_accounts")
         accounts = c.fetchall()
         response = "💻 *Взломанные аккаунты*\n\n" if accounts else "📭 *Список взломанных аккаунтов пуст.*\n"
-        for login, password, status in accounts:
-            response += f"🔑 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n📊 *Статус*: {status}\n\n"
+        for login, password, status, hack_date in accounts:
+            response += (
+                f"🔑 *Логин*: `{login}`\n"
+                f"🔒 *Пароль*: `{password}`\n"
+                f"📊 *Статус*: {status}\n"
+                f"🕒 *Добавлено*: {format_time(datetime.fromisoformat(hack_date)) if hack_date else 'Неизвестно'}\n\n"
+            )
         bot.reply_to(message, response, parse_mode='Markdown')
         logger.info(f"Ответ: {response}")
         user = get_user(chat_id)
@@ -636,11 +660,15 @@ def passwords_cmd(message):
         return
     try:
         c = conn.cursor()
-        c.execute("SELECT login, password FROM credentials")
+        c.execute("SELECT login, password, added_time FROM credentials")
         credentials = c.fetchall()
         response = "🔑 *Список паролей*\n\n" if credentials else "📭 *Список паролей пуст.*\n"
-        for login, password in credentials:
-            response += f"🔐 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n\n"
+        for login, password, added_time in credentials:
+            response += (
+                f"🔐 *Логин*: `{login}`\n"
+                f"🔒 *Пароль*: `{password}`\n"
+                f"🕒 *Добавлено*: {format_time(datetime.fromisoformat(added_time)) if added_time else 'Неизвестно'}\n\n"
+            )
         bot.reply_to(message, response, parse_mode='Markdown')
         user = get_user(chat_id)
         keyboard = types.InlineKeyboardMarkup()
@@ -1059,7 +1087,7 @@ def process_db_delete(message):
 # /techstop
 @bot.message_handler(commands=['techstop'])
 def techstop_cmd(message):
-    global tech_mode
+    global tech_mode, tech_reason, tech_end_time
     chat_id = str(message.chat.id)
     username = sanitize_input(message.from_user.username) or "Неизвестно"
     logger.info(f"/techstop от {chat_id}")
@@ -1071,21 +1099,54 @@ def techstop_cmd(message):
         except Exception as e:
             logger.error(f"Ошибка /techstop: {e}")
         return
-    tech_mode = True
-    response = "🚨 *Технический перерыв включён!*"
     try:
-        bot.reply_to(message, response, parse_mode='Markdown')
-        logger.info(f"Ответ: {response}")
-        user = get_user(chat_id)
-        save_user(chat_id, user['prefix'], user['subscription_end'], message.from_user.id, username)
+        msg = bot.reply_to(
+            message,
+            "📝 *Введите причину и длительность техперерыва в часах (через пробел, например: Обновление 2)*:",
+            parse_mode='Markdown'
+        )
+        bot.register_next_step_handler(msg, process_techstop)
+        logger.info(f"Запрошены параметры техперерыва")
     except Exception as e:
         logger.error(f"Ошибка /techstop: {e}")
+        bot.reply_to(message, "❌ *Ошибка запроса!*", parse_mode='Markdown')
+
+def process_techstop(message):
+    global tech_mode, tech_reason, tech_end_time
+    chat_id = str(message.chat.id)
+    username = sanitize_input(message.from_user.username) or "Неизвестно"
+    try:
+        reason, hours = sanitize_input(message.text).rsplit(maxsplit=1)
+        hours = int(hours)
+        if hours <= 0:
+            raise ValueError("Длительность должна быть больше 0")
+        tech_reason = reason
+        tech_end_time = get_current_time() + timedelta(hours=hours)
+        tech_mode = True
+        response = (
+            f"🚨 *Технический перерыв включён!*\n"
+            f"📝 *Причина*: {tech_reason}\n"
+            f"🕒 *Окончание*: {format_time(tech_end_time)}"
+        )
+        bot.reply_to(message, response, parse_mode='Markdown')
+        logger.info(f"Техперерыв: {tech_reason}, до {format_time(tech_end_time)}")
+        user = get_user(chat_id)
+        save_user(chat_id, user['prefix'], user['subscription_end'], message.from_user.id, username)
+    except ValueError:
+        logger.warning("Неверный формат")
+        bot.reply_to(
+            message,
+            "❌ *Формат: Причина Часы (например: Обновление 2)*",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка техперерыва: {e}")
         bot.reply_to(message, "❌ *Ошибка активации!*", parse_mode='Markdown')
 
 # /techstopoff
 @bot.message_handler(commands=['techstopoff'])
 def techstopoff_cmd(message):
-    global tech_mode
+    global tech_mode, tech_reason, tech_end_time
     chat_id = str(message.chat.id)
     username = sanitize_input(message.from_user.username) or "Неизвестно"
     logger.info(f"/techstopoff от {chat_id}")
@@ -1098,6 +1159,8 @@ def techstopoff_cmd(message):
             logger.error(f"Ошибка /techstopoff: {e}")
         return
     tech_mode = False
+    tech_reason = ""
+    tech_end_time = None
     response = "✅ *Технический перерыв отключён!*"
     try:
         bot.reply_to(message, response, parse_mode='Markdown')
