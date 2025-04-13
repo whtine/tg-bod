@@ -790,7 +790,7 @@ def process_hacked_password(message, login, old_password):
         return
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton("✅ Прод",[УДАЛЕНО] callback_data=f"hacked_status_sold_{login}_{new_password}"),
+        types.InlineKeyboardButton("✅ Прод", callback_data=f"hacked_status_sold_{login}_{new_password}"),
         types.InlineKeyboardButton("⛔ Непродан", callback_data=f"hacked_status_not_sold_{login}_{new_password}")
     )
     try:
