@@ -546,7 +546,6 @@ def process_support_message(message):
     chat_id = str(message.chat.id)
     text = sanitize_input(message.text)
     logger.info(f"Поддержка от {chat_id}: {text}")
-heil hitler
     if not text:
         try:
             bot.reply_to(message, "❌ *Сообщение не может быть пустым!*", parse_mode='Markdown')
@@ -791,7 +790,7 @@ def process_hacked_password(message, login, old_password):
         return
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton("✅ Продан", callback_data=f"hacked_status_sold_{login}_{new_password}"),
+        types.InlineKeyboardButton("✅ Прод",[УДАЛЕНО] callback_data=f"hacked_status_sold_{login}_{new_password}"),
         types.InlineKeyboardButton("⛔ Непродан", callback_data=f"hacked_status_not_sold_{login}_{new_password}")
     )
     try:
