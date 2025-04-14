@@ -356,6 +356,7 @@ def check_bot_status():
         logger.error(f"Бот не отвечает: {e}")
         return False
 
+
 # Маршруты Flask
 @app.route('/', endpoint='index')
 def index():
@@ -365,7 +366,7 @@ def index():
 @app.route('/404', endpoint='not_found')
 def not_found():
     logger.info("Запрос на /404")
-    return render_template('404.html')  # Или '404.index.html', если нужен новый шаблон
+    return render_template('404.html')
 
 @app.route('/toptrending', endpoint='top_trending')
 def top_trending():
@@ -406,7 +407,7 @@ def top_revisited():
 @app.errorhandler(404)
 def page_not_found(e):
     logger.info(f"404 ошибка: {request.path}")
-    return render_template('404.html'), 404  # Или '404.index.html'
+    return render_template('404.html'), 404
 
 # Вебхук
 @app.route('/webhook', methods=['POST'])
