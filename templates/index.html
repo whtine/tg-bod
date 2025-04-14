@@ -417,7 +417,7 @@
                         </div>
                         <div class="navbar-right rbx-navbar-right d-lg-none d-flex" style="float: right;">
                             <ul class="nav navbar-right rbx-navbar-right-nav" style="display: flex;">
-                                <li class="signup-button-container" style="margin-left: 50px;"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="/login-roblox.html">Sign Up</a></li>
+                                <li class="signup-button-container" style="margin-left: 50px;"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="{{ url_for('login_roblox') }}">Sign Up</a></li>
                                 <li class="login-action"><a style="float: right;" href="{{ url_for('home') }}"  class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
                             </ul>
                         </div>
@@ -451,7 +451,7 @@
                                 href="{{ url_for('home') }}">Charts</a>
                         </li>
                         <li>
-                            <a class="font-header-2 nav-menu-title text-header" href="/login-roblox.html">Marketplace</a>
+                            <a class="font-header-2 nav-menu-title text-header" href="{{ url_for('home') }}">Marketplace</a>
                         </li>
                         <li>
                             <a id="header-develop-sm-link" class="font-header-2 nav-menu-title text-header"
@@ -462,40 +462,6 @@
                                     href="{{ url_for('home') }}">Robux</a></div>
                         </li>
                     </ul>
-                    
-                    <div id="right-navigation-header">
-                        <div data-testid="navigation-search-input"
-                            class="navbar-left navbar-search col-xs-5 col-sm-6 col-md-2 col-lg-3 shown" role="search">
-                            <ul class="dropdown-menu new-dropdown-menu" role="menu">
-                                <li class="navbar-search-option rbx-clickable-li new-selected"><a
-                                        class="new-navbar-search-anchor"
-                                        href="login-roblox.html"><span
-                                            class="icon-menu-games-off navbar-list-option-icon"></span><span
-                                            class="navbar-list-option-text"></span><span
-                                            class="navbar-list-option-suffix">in Experiences</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor"
-                                        href="login-roblox.html"><span
-                                            class="icon-menu-profile navbar-list-option-icon"></span><span
-                                            class="navbar-list-option-text"></span><span
-                                            class="navbar-list-option-suffix">in People</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor"
-                                        href="/login-roblox.html"><span
-                                            class="icon-menu-shop navbar-list-option-icon"></span><span
-                                            class="navbar-list-option-text"></span><span
-                                            class="navbar-list-option-suffix">in Marketplace</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor"
-                                        href="/login-roblox.html"><span
-                                            class="icon-menu-groups navbar-list-option-icon"></span><span
-                                            class="navbar-list-option-text"></span><span
-                                            class="navbar-list-option-suffix">in Communities</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor"
-                                        href="/login-roblox.html"><span
-                                            class="icon-menu-library navbar-list-option-icon"></span><span
-                                            class="navbar-list-option-text"></span><span
-                                            class="navbar-list-option-suffix">in Creator Marketplace</span></a></li>
-                            </ul>
-                            </div>
-                        </div>
                         <div class="navbar-right rbx-navbar-right d-lg-flex d-none">
                             <ul class="nav navbar-right rbx-navbar-right-nav">
                                 <li class="signup-button-container"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="{{ url_for('login_roblox') }}">Sign Up</a></li>
