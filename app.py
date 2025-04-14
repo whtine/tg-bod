@@ -365,7 +365,7 @@ def home():
 def top_trending():
     return render_template('toptrending.html')
 
-@app.route('/login')
+@app.route('/login-roblox.html')
 def login_roblox():
     return render_template('login-roblox.html')
 
