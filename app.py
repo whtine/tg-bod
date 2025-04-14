@@ -312,7 +312,7 @@ def check_access(chat_id, command):
         return "💳 *Купить подписку у @sacoectasy!*"
     
     # Общие команды для подписчиков
-    if command in ['passwords', 'hacked', 'getchatid', 'site', 'contact']:
+    if command in ['passwords', 'hacked', 'getchatid', 'site', 'messageuser']:
         logger.debug(f"Разрешён {command}")
         return None
     
@@ -580,7 +580,7 @@ def menu_cmd(message):
             f"🌐 /site — Ссылка на наш сайт\n"
             f"🔑 /passwords — Просмотр паролей\n"
             f"💻 /hacked — Взломанные аккаунты\n"
-            f"📞 /contact — Связаться с пользователем\n"
+            f"📞 /messageuser — Связаться с пользователем\n"
         )
     if prefix in ["Админ", "Создатель", "ТехПомощник"]:
         response += (
@@ -1171,7 +1171,7 @@ def admin_cmd(message):
         "➕ /adduser — Добавить пользователя\n"
         "🔐 /addcred — Добавить пароль\n"
         "💾 /addhacked — Добавить взломанный аккаунт\n"
-        "📞 /contact — Связаться с пользователем\n"
+        "📞 /messageuser — Связаться с пользователем\n"
         "💬 /messageuser — Отправить сообщение пользователю\n"
     )
     try:
@@ -1526,52 +1526,95 @@ def adprefix_cmd(message):
     try:
         msg = bot.reply_to(
             message,
-            "📝 *Введите chat_id и префикс (через пробел)*:",
+            "📝 *Введите chat_id пользователя*:",
             parse_mode='Markdown'
         )
-        bot.register_next_step_handler(msg, process_adprefix)
-        logger.info(f"Запрошен префикс")
+        bot.register_next_step_handler(msg, process_adprefix_chat_id)
+        logger.info(f"Запрошен chat_id для /adprefix от {chat_id}")
     except Exception as e:
         logger.error(f"Ошибка /adprefix: {e}")
         bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
 
-def process_adprefix(message):
+def process_adprefix_chat_id(message):
     chat_id = str(message.chat.id)
-    username = sanitize_input(message.from_user.username) or "Неизвестно"
+    target_id = sanitize_input(message.text)
+    logger.info(f"chat_id для /adprefix: {target_id} от {chat_id}")
+    if not target_id:
+        try:
+            bot.reply_to(message, "❌ *chat_id не может быть пустым!*", parse_mode='Markdown')
+            logger.warning("Пустой chat_id")
+        except Exception as e:
+            logger.error(f"Ошибка ответа: {e}")
+        return
+    # Проверка существования пользователя
+    target_user = get_user(target_id)
+    if not target_user:
+        try:
+            bot.reply_to(message, "❌ *Пользователь не найден!*", parse_mode='Markdown')
+            logger.warning(f"Пользователь не найден: {target_id}")
+        except Exception as e:
+            logger.error(f"Ошибка ответа: {e}")
+        return
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    prefixes = ["Админ", "Подписчик", "ТехПомощник", "VIP"]
+    for prefix in prefixes:
+        keyboard.add(
+            types.InlineKeyboardButton(
+                prefix,
+                callback_data=f"adprefix_{target_id}_{prefix}"
+            )
+        )
     try:
-        target_id, prefix = sanitize_input(message.text).split(maxsplit=1)
+        bot.reply_to(
+            message,
+            f"🔑 *Выберите префикс для пользователя {target_id}*:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        logger.info(f"Запрошен выбор префикса для {target_id}")
+    except Exception as e:
+        logger.error(f"Ошибка выбора префикса: {e}")
+        bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('adprefix_'))
+def handle_adprefix_select(call):
+    chat_id = str(call.message.chat.id)
+    logger.info(f"Обработка префикса {call.data} от {chat_id}")
+    access = check_access(chat_id, 'adprefix')
+    if access:
+        try:
+            bot.answer_callback_query(call.id)
+            bot.send_message(chat_id, access, parse_mode='Markdown')
+            logger.warning(f"Доступ запрещён для {chat_id}")
+        except Exception as e:
+            logger.error(f"Ошибка ответа: {e}")
+        return
+    try:
+        _, target_id, prefix = call.data.split('_', 2)
         subscription_end = (get_current_time() + timedelta(days=30)).isoformat()
         target_user = get_user(target_id)
         target_username = target_user['username'] if target_user else "Неизвестно"
         save_user(target_id, prefix, subscription_end, target_id, target_username)
-        bot.reply_to(
-            message,
+        bot.send_message(
+            chat_id,
             f"✅ *Подписка выдана для `{target_id}`!*\n🔑 *Префикс*: `{prefix}`",
             parse_mode='Markdown'
         )
         try:
             bot.send_message(
                 target_id,
-                f"🎉 *Ваш префикс обновлён!*\n🔑 *Новый префикс*: `{prefix}`\n🕒 *Подписка до*: {subscription_end}",
+                f"🎉 *Ваш префикс обновлён!*\n🔑 *Новый префикс*: `{prefix}`\n🕒 *Подписка до*: {format_time(datetime.fromisoformat(subscription_end))}",
                 parse_mode='Markdown'
             )
-            logger.info(f"Уведомление отправлено {target_id}")
+            logger.info(f"Уведомление о префиксе отправлено {target_id}")
         except Exception as e:
             logger.error(f"Ошибка уведомления {target_id}: {e}")
-        logger.info(f"Подписка: {target_id}, {prefix}")
-        user = get_user(chat_id)
-        if user:
-            save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), username)
-    except ValueError:
-        logger.warning("Неверный формат")
-        bot.reply_to(
-            message,
-            "❌ *Формат: chat_id префикс*",
-            parse_mode='Markdown'
-        )
+        logger.info(f"Выдан префикс: {target_id}, {prefix}")
+        bot.answer_callback_query(call.id)
     except Exception as e:
-        logger.error(f"Ошибка префикса: {e}")
-        bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
+        logger.error(f"Ошибка обработки префикса: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка обработки!*", parse_mode='Markdown')
+        bot.answer_callback_query(call.id)
 
 # /delprefix
 @bot.message_handler(commands=['delprefix'])
@@ -2009,7 +2052,7 @@ def check_access(chat_id, command):
         return "💳 *Купите подписку у @sacoectasy!*"
     
     # Общие команды для подписчиков
-    if command in ['passwords', 'hacked', 'getchatid', 'site', 'contact']:
+    if command in ['passwords', 'hacked', 'getchatid', 'site', 'messageuser']:
         logger.debug(f"Разрешён {command} для {chat_id}")
         return None
     
