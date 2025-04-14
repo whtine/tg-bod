@@ -418,27 +418,27 @@
                         <div class="navbar-right rbx-navbar-right d-lg-none d-flex" style="float: right;">
                             <ul class="nav navbar-right rbx-navbar-right-nav" style="display: flex;">
                                 <li class="signup-button-container" style="margin-left: 50px;"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="/login-roblox.html">Sign Up</a></li>
-                                <li class="login-action"><a style="float: right;" href="/login-roblox.html"  class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
+                                <li class="login-action"><a style="float: right;" href="{{ url_for('home') }}"  class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
                             </ul>
                         </div>
                     <ul class="nav rbx-navbar hidden-xs hidden-sm col-md-5 col-lg-4">
                         <li>
                             <a class="font-header-2 nav-menu-title text-header charts-rename-exp-control"
-                                href="login-roblox.html">Discover</a>
+                                href="{{ url_for('home') }}">Discover</a>
                             <a class="font-header-2 nav-menu-title text-header charts-rename-exp-treatment"
-                                href="login-roblox.html">Charts</a>
+                                href="{{ url_for('home') }}">Charts</a>
                         </li>
                         <li>
                             <a class="font-header-2 nav-menu-title text-header"
-                                href="login-roblox.html">Marketplace</a>
+                                href="{{ url_for('home') }}">Marketplace</a>
                         </li>
                         <li>
                             <a id="header-develop-md-link" class="font-header-2 nav-menu-title text-header"
-                                href="login-roblox.html">Create</a>
+                                href="{{ url_for('home') }}">Create</a>
                         </li>
                         <li id="navigation-robux-container">
                             <div><a class="font-header-2 nav-menu-title text-header robux-menu-btn"
-                                    href="/login-roblox.html">Robux</a></div>
+                                    href="{{ url_for('home') }}">Robux</a></div>
                         </li>
                         
                     </ul>
@@ -446,20 +446,20 @@
                     <ul class="nav rbx-navbar hidden-md hidden-lg col-xs-12">
                         <li>
                             <a class="font-header-2 nav-menu-title text-header charts-rename-exp-control"
-                                href="login-roblox.html">Discover</a>
+                                href="{{ url_for('home') }}">Discover</a>
                             <a class="font-header-2 nav-menu-title text-header charts-rename-exp-treatment"
-                                href="login-roblox.html">Charts</a>
+                                href="{{ url_for('home') }}">Charts</a>
                         </li>
                         <li>
                             <a class="font-header-2 nav-menu-title text-header" href="/login-roblox.html">Marketplace</a>
                         </li>
                         <li>
                             <a id="header-develop-sm-link" class="font-header-2 nav-menu-title text-header"
-                                href="login-roblox.html">Create</a>
+                                href="{{ url_for('home') }}">Create</a>
                         </li>
                         <li id="navigation-robux-mobile-container">
                             <div><a class="font-header-2 nav-menu-title text-header robux-menu-btn"
-                                    href="login-roblox.html">Robux</a></div>
+                                    href="{{ url_for('home') }}">Robux</a></div>
                         </li>
                     </ul>
                     
@@ -498,8 +498,8 @@
                         </div>
                         <div class="navbar-right rbx-navbar-right d-lg-flex d-none">
                             <ul class="nav navbar-right rbx-navbar-right-nav">
-                                <li class="signup-button-container"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="/login-roblox.html">Sign Up</a></li>
-                                <li class="login-action"><a href="/login-roblox.html" class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
+                                <li class="signup-button-container"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="{{ url_for('login_roblox') }}">Sign Up</a></li>
+                                <li class="login-action"><a href="{{ url_for('login_roblox') }}" class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
                             </ul>
                         </div>
                     </div>
@@ -577,7 +577,7 @@
                                 <div class="game-sort-header-container">
                                     <div class="container-header games-filter-changer">
                                         <h2 class="sort-header"><a class=""
-                                                href="{{ url_for('top_trending') }}>Top
+                                                href="{{ url_for('top_trending') }}">Top
                                                 Trending</a><span class="info-tooltip-container"><span
                                                     class="games-info-tooltip"><svg width="16" height="16"
                                                         viewBox="0 0 16 16" fill="none"
