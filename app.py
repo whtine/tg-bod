@@ -2110,7 +2110,6 @@ def handle_adprefix_select(call):
         bot.send_message(chat_id, "❌ *Ошибка обработки!*", parse_mode='Markdown')
         bot.answer_callback_query(call.id)
 
-# Команда /delprefix
 @bot.message_handler(commands=['delprefix'])
 def delprefix_cmd(message):
     chat_id = str(message.chat.id)
@@ -2141,23 +2140,40 @@ def process_delprefix(message):
     logger.info(f"Обработка /delprefix от {chat_id}")
     try:
         input_text = sanitize_input(message.text)
-        parts = input_text.rsplit(maxsplit=1)
+        logger.info(f"Введённый текст: '{input_text}'")
+        # Разделяем строку на chat_id и причину
+        parts = input_text.strip().split(maxsplit=1)
         if len(parts) < 2:
-            bot.reply_to(message, "❌ *Формат: chat_id причина (например: 123456 Нарушение)*", parse_mode='Markdown')
+            bot.reply_to(
+                message,
+                "❌ *Формат: chat_id причина (например: 123456 Нарушение)*",
+                parse_mode='Markdown'
+            )
             logger.warning(f"Неверный формат ввода: {input_text}")
             return
         target_id, reason = parts
-        if not target_id.isdigit():
-            bot.reply_to(message, "❌ *chat_id должен быть числом (например, 123456)!*", parse_mode='Markdown')
+        logger.info(f"Извлечено: chat_id={target_id}, причина={reason}")
+        # Проверяем, что chat_id состоит из цифр (и, возможно, минуса)
+        if not re.match(r'^-?\d+$', target_id):
+            bot.reply_to(
+                message,
+                "❌ *chat_id должен быть числом (например, 123456)!*",
+                parse_mode='Markdown'
+            )
             logger.warning(f"Неверный chat_id: {target_id}")
             return
-        logger.info(f"Введён chat_id: {target_id}, причина: {reason}")
         target_user = get_user(target_id)
         if not target_user:
-            bot.reply_to(message, "❌ *Пользователь с таким chat_id не найден!*", parse_mode='Markdown')
+            bot.reply_to(
+                message,
+                "❌ *Пользователь с таким chat_id не найден!*",
+                parse_mode='Markdown'
+            )
             logger.warning(f"Пользователь не найден: {target_id}")
             return
         target_username = target_user['username'] or "Неизвестно"
+        logger.info(f"Пользователь найден: {target_username}, текущий префикс: {target_user['prefix']}")
+        # Сбрасываем префикс
         save_user(target_id, "Посетитель", get_current_time().isoformat(), target_id, target_username)
         bot.reply_to(
             message,
@@ -2172,12 +2188,16 @@ def process_delprefix(message):
             )
             logger.info(f"Уведомление о сбросе отправлено {target_id}")
         except Exception as e:
-            logger.error(f"Ошибка уведомления {target_id}: {e}")
+            logger.error(f"Ошибка отправки уведомления {target_id}: {e}")
+            bot.reply_to(
+                message,
+                f"⚠️ *Уведомление для {target_id} не отправлено, но префикс сброшен.*",
+                parse_mode='Markdown'
+            )
         logger.info(f"Успешно сброшена подписка: {target_id}, причина: {reason}")
     except Exception as e:
         logger.error(f"Ошибка обработки /delprefix: {e}")
         bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
-
 # Команда /messageuser
 @bot.message_handler(commands=['messageuser'])
 def messageuser_cmd(message):
