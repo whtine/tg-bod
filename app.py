@@ -358,8 +358,12 @@ def check_bot_status():
 
 # Flask маршруты для HTML страниц
 @app.route('/')
-def home():
+def index():
     return render_template('index.html')
+
+@app.route('/login')
+def login_roblox():
+    return render_template('login-roblox.html')
 
 @app.route('/404')
 def not_found():
@@ -368,10 +372,6 @@ def not_found():
 @app.route('/top-trending')
 def top_trending():
     return render_template('toptrending.html')
-
-@app.route('/login')
-def login_roblox():
-    return render_template('login-roblox.html')
 
 @app.route('/up-and-coming')
 def up_and_coming():
