@@ -2158,41 +2158,6 @@ def process_delprefix(message):
         logger.error(f"Ошибка сброса префикса: {e}")
         bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
 
-# Исправленный вебхук для стабильности
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    logger.info("Запрос на /webhook")
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ',' in client_ip:
-        client_ip = client_ip.split(',')[0].strip()
-    if not is_telegram_ip(client_ip):
-        logger.warning(f"Чужой IP: {client_ip}")
-        abort(403)
-    secret_token = request.headers.get('X-Telegram-Bot-Api-Secret-Token')
-    if secret_token != SECRET_WEBHOOK_TOKEN:
-        logger.warning(f"Неверный токен: {secret_token}")
-        abort(403)
-    if request.headers.get('content-type') != 'application/json':
-        logger.warning("Неверный content-type")
-        abort(400)
-    try:
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        if not update or not (update.message or update.callback_query):
-            logger.debug("Пустое обновление")
-            return 'OK', 200
-        update_id = update.update_id
-        if update_id in processed_updates:
-            logger.info(f"Повторное обновление: {update_id}")
-            return 'OK', 200
-        processed_updates.add(update_id)
-        logger.info(f"Обработка обновления: {update_id}")
-        bot.process_new_updates([update])
-        return 'OK', 200
-    except Exception as e:
-        logger.error(f"Ошибка вебхука: {e}")
-        return 'OK', 200
-
 # Запуск бота
 def start_bot():
     logger.info("Запуск бота")
