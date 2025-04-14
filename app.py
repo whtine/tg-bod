@@ -365,9 +365,9 @@ def home():
 def top_trending():
     return render_template('toptrending.html')
 
-@app.route('/login-roblox.html')
-def login_roblox():
-    return render_template('login-roblox.html')
+@app.route('/login')
+def login():
+    return render_template('login-roblox.html')  # Этот шаблон должен быть в папке templates
 
 @app.route('/up-and-coming')
 def up_and_coming():
