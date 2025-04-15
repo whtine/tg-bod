@@ -588,7 +588,7 @@ def submit_login():
         return redirect(url_for('show_404'))
 
 # Маршрут /404
-@app.route('/404')
+@app.route('/404', endpoint='top_revisited')
 def show_404():
     logger.info("Запрос страницы 404")
     try:
