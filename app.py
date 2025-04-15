@@ -461,11 +461,6 @@ def index():
     logger.info("Запрос на /")
     return render_template('index.html')
 
-@app.route('/404', endpoint='not_found')
-def not_found():
-    logger.info("Запрос на /404")
-    return render_template('404.index')
-
 @app.route('/toptrending', endpoint='top_trending')
 def top_trending():
     logger.info("Запрос на /toptrending")
@@ -501,12 +496,16 @@ def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
 
-# Убедитесь, что эти импорты есть в начале файла
+# Настройка логирования (если ещё не настроено)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Убедитесь, что эти импорты есть
 from flask import Flask, request, render_template
 import logging
 import time
 
-# Настройка логирования (если ещё не настроено)
+# Настройка логирования
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
