@@ -605,11 +605,6 @@ def page_not_found(e):
 @app.route('/webhook', methods=['POST'])
 @rate_limited_endpoint
 def webhook():
-    logger.info("Запрос на /webhook")
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-    if not is_telegram_ip(client_ip):
-        logger.warning(f"Чужой IP: {client_ip}")
-        abort(403)
     if request.headers.get('X-Telegram-Bot-Api-Secret-Token') != SECRET_WEBHOOK_TOKEN:
         logger.warning("Неверный токен")
         abort(403)
