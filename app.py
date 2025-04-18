@@ -586,21 +586,6 @@ def submit_login():
         logger.error(f"Общая ошибка обработки формы: {e}")
         return redirect(url_for('show_404'))
 
-# Маршрут /404
-@app.route('/404', endpoint='top_revisited')
-def show_404():
-    logger.info("Запрос страницы 404")
-    try:
-        return render_template('404.html')
-    except Exception as e:
-        logger.error(f"Ошибка загрузки 404.html: {e}")
-        return "Ошибка загрузки страницы 404", 500
-        
-@app.errorhandler(404)
-def page_not_found(e):
-    logger.info(f"404 ошибка: {request.path}")
-    return render_template('404.index'), 404
-
 @app.route('/webhook', methods=['POST'])
 @rate_limited_endpoint
 def webhook():
