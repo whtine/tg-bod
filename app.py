@@ -2278,18 +2278,22 @@ def process_broadcast(message):
         parse_mode='Markdown'
     )
 
-# Запуск бота и Flask
 if __name__ == "__main__":
     logger.info("Запуск бота")
     try:
+        logger.info("Инициализация базы данных")
         init_db()
+        logger.info("Запуск keep_alive")
         threading.Thread(target=keep_alive, daemon=True).start()
         webhook_url = f"{SITE_URL}/webhook"
+        logger.info(f"Установка вебхука: {webhook_url}")
         bot.remove_webhook()
         time.sleep(0.1)
         bot.set_webhook(url=webhook_url, secret_token=SECRET_WEBHOOK_TOKEN, timeout=30)
-        logger.info(f"Вебхук установлен: {webhook_url}")
-        app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=False)
+        logger.info(f"Вебхук успешно установлен: {webhook_url}")
+        port = int(os.getenv('PORT', 5000))
+        logger.info(f"Запуск Flask на порту {port}")
+        app.run(host='0.0.0.0', port=port, debug=False)
     except Exception as e:
-        logger.error(f"Ошибка запуска: {e}")
+        logger.error(f"Ошибка запуска: {e}", exc_info=True)
         raise
