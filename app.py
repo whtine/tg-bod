@@ -495,7 +495,7 @@ def hot_right_now():
 def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
-# Обработка ошибок 404
+    
 @app.errorhandler(404)
 def page_not_found(e):
     logger.info(f"404 ошибка: {request.path}")
@@ -504,7 +504,6 @@ def page_not_found(e):
     except Exception as ex:
         logger.error(f"Ошибка рендеринга 404.html: {ex}")
         return "Ошибка загрузки страницы 404", 404
-
 # Маршрут для favicon.ico
 @app.route('/favicon.ico')
 def favicon():
